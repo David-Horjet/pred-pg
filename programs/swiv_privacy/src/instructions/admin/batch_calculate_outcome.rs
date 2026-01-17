@@ -7,7 +7,7 @@ use crate::utils::math::{
     calculate_accuracy_score, 
     calculate_time_bonus, 
     calculate_conviction_bonus, 
-    calculate_parimutuel_weight,
+    calculate_weight,
 };
 
 #[derive(Accounts)]
@@ -75,8 +75,8 @@ pub fn batch_calculate_outcome<'info>(
         // 3. Conviction
         let conviction_bonus = calculate_conviction_bonus(user_bet.update_count);
 
-        // 4. Weight
-        let mut weight = calculate_parimutuel_weight(
+        // 4. Weight (Renamed Function)
+        let mut weight = calculate_weight(
             user_bet.deposit,
             accuracy_score,
             time_bonus,

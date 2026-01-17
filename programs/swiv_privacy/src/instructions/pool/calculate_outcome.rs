@@ -7,7 +7,7 @@ use crate::utils::math::{
     calculate_accuracy_score, 
     calculate_time_bonus, 
     calculate_conviction_bonus, 
-    calculate_parimutuel_weight,
+    calculate_weight, 
 };
 
 #[derive(Accounts)]
@@ -58,11 +58,11 @@ pub fn calculate_outcome(ctx: Context<CalculateOutcome>) -> Result<()> {
         bet.creation_ts
     )?;
 
-    // 3. Conviction Bonus (Penalty for updates)
+    // 3. Conviction Bonus
     let conviction_bonus = calculate_conviction_bonus(bet.update_count);
 
-    // 4. Calculate Final Weight
-    let weight = calculate_parimutuel_weight(
+    // 4. Calculate Final Weight (Renamed function)
+    let weight = calculate_weight(
         bet.deposit,
         accuracy_score,
         time_bonus,

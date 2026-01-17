@@ -1,6 +1,18 @@
 use anchor_lang::prelude::*;
 
 #[event]
+pub struct ProtocolInitialized {
+    pub admin: Pubkey,
+    pub fee_wallet: Pubkey,
+}
+
+#[event]
+pub struct ConfigUpdated {
+    pub treasury: Option<Pubkey>,
+    pub protocol_fee_bps: Option<u64>,
+}
+
+#[event]
 pub struct BetPlaced {
     pub bet_address: Pubkey,
     pub user: Pubkey,
@@ -30,12 +42,6 @@ pub struct PoolCreated {
 }
 
 #[event]
-pub struct ProtocolInitialized {
-    pub admin: Pubkey,
-    pub fee_wallet: Pubkey,
-}
-
-#[event]
 pub struct AssetConfigUpdated {
     pub symbol: String,
     pub pyth_feed: Pubkey,
@@ -45,12 +51,6 @@ pub struct AssetConfigUpdated {
 #[event]
 pub struct PauseChanged {
     pub is_paused: bool,
-}
-
-#[event]
-pub struct ConfigUpdated {
-    pub treasury: Option<Pubkey>,
-    pub parimutuel_fee_bps: Option<u64>,
 }
 
 #[event]
@@ -91,7 +91,7 @@ pub struct WeightsFinalized {
 pub struct OutcomeCalculated {
     pub bet_address: Pubkey,
     pub user: Pubkey,
-    pub weight: u128, 
+    pub weight: u128,
 }
 
 #[event]

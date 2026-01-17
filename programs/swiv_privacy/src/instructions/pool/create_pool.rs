@@ -68,12 +68,6 @@ pub fn create_pool(
 ) -> Result<()> {
     require!(end_time > start_time, CustomError::DurationTooShort);
     
-    let global_config = &ctx.accounts.global_config;
-    let mint_key = ctx.accounts.token_mint.key();
-    
-    let is_whitelisted = global_config.allowed_assets.iter().any(|&asset| asset == mint_key);
-    require!(is_whitelisted, CustomError::AssetNotWhitelisted); 
-
     let pool = &mut ctx.accounts.pool;
     pool.admin = ctx.accounts.admin.key();
     pool.name = name.clone();
@@ -83,21 +77,17 @@ pub fn create_pool(
     pool.end_time = end_time;
     pool.vault_balance = 0; 
     
-    // Config
     pool.max_accuracy_buffer = max_accuracy_buffer;
     pool.conviction_bonus_bps = conviction_bonus_bps; 
     
-    // Resolution State
     pool.is_resolved = false;
     pool.resolution_target = 0;
     
-    // Parimutuel State
     pool.total_weight = 0;
     pool.weight_finalized = false;
 
     pool.bump = ctx.bumps.pool;
 
-    // Initial Liquidity (Seeding the pot)
     if initial_liquidity > 0 {
         token::transfer(
             CpiContext::new(

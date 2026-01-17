@@ -10,7 +10,7 @@ pub mod utils;
 
 use instructions::*;
 
-declare_id!("Hf1uWhQTGCBrk3ym4sfiDcm9RXTR17WoyibQFmqy8Q54");
+declare_id!("6spJY9XSUz9KtS73jqojSMzwuCdwiroy8AX9nZ27is3U");
 
 #[ephemeral]
 #[program]
@@ -20,23 +20,20 @@ pub mod swiv_privacy {
     // --- ADMIN & CONFIG ---
     pub fn initialize_protocol(
         ctx: Context<InitializeProtocol>, 
-        parimutuel_fee_bps: u64, 
-        allowed_assets: Vec<Pubkey>
+        protocol_fee_bps: u64 
     ) -> Result<()> {
-        admin::initialize_protocol(ctx, parimutuel_fee_bps, allowed_assets)
+        admin::initialize_protocol(ctx, protocol_fee_bps)
     }
 
     pub fn update_config(
         ctx: Context<UpdateConfig>,
         new_treasury: Option<Pubkey>,
-        new_parimutuel_fee_bps: Option<u64>,
-        new_allowed_assets: Option<Vec<Pubkey>>,
+        new_protocol_fee_bps: Option<u64>, 
     ) -> Result<()> {
         admin::update_config(
             ctx, 
             new_treasury, 
-            new_parimutuel_fee_bps, 
-            new_allowed_assets
+            new_protocol_fee_bps, 
         )
     }
 
@@ -63,7 +60,7 @@ pub mod swiv_privacy {
         instructions::delegation::batch_undelegate_bets(ctx)
     }
     
-    // --- POOL (Parimutuel / TargetOnly) ---
+    // --- POOL ---
     pub fn create_pool(
         ctx: Context<CreatePool>,
         name: String,
@@ -128,7 +125,6 @@ pub mod swiv_privacy {
     // --- BET MANAGEMENT ---
     pub fn update_bet(
         ctx: Context<UpdateBet>,
-        // Removed: low/high
         new_prediction_target: u64,
     ) -> Result<()> {
         pool::update_bet(

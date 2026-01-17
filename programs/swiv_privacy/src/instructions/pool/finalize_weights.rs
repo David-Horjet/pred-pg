@@ -49,10 +49,10 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
     require!(pool.is_resolved, CustomError::SettlementTooEarly);
     require!(!pool.weight_finalized, CustomError::AlreadySettled);
 
-    // 1. Calculate Parimutuel Fee
+    // 1. Calculate Protocol Fee (Renamed from Parimutuel Fee)
     let total_pot = pool.vault_balance;
     let fee_amount = total_pot
-        .checked_mul(global_config.parimutuel_fee_bps).unwrap()
+        .checked_mul(global_config.protocol_fee_bps).unwrap()
         .checked_div(10000).unwrap();
 
     // 2. Transfer Fee to Treasury
@@ -76,7 +76,7 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
         )?;
 
         pool.vault_balance = pool.vault_balance.checked_sub(fee_amount).unwrap();
-        msg!("Parimutuel Fee Deducted: {}", fee_amount);
+        msg!("Protocol Fee Deducted: {}", fee_amount);
     }
 
     // 3. Finalize

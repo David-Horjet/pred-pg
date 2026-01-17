@@ -91,7 +91,8 @@ pub fn calculate_conviction_bonus(update_count: u32) -> u64 {
 
 // --- MASTER WEIGHT CALCULATION ---
 /// Weight = Stake * Accuracy * Time * Conviction
-pub fn calculate_parimutuel_weight(
+/// Renamed from calculate_parimutuel_weight
+pub fn calculate_weight(
     stake: u64,
     accuracy_score_scaled: u64, // 0 to 1,000,000
     time_bonus_scaled: u64,     // 1,000,000 to 2,000,000
