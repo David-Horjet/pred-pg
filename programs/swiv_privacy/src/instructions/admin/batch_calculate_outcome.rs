@@ -54,28 +54,23 @@ pub fn batch_calculate_outcome<'info>(
         let mut user_bet_data = user_bet_acc_info.try_borrow_mut_data()?;
         let mut user_bet = UserBet::try_deserialize(&mut &user_bet_data[..])?;
 
-        // --- Skip checks ---
         if user_bet.pool_identifier != pool.name { continue; }
         if user_bet.status != BetStatus::Active || !user_bet.is_revealed { continue; }
 
-        // 1. Accuracy
         let accuracy_score = calculate_accuracy_score(
             user_bet.prediction_target,
             result,
             max_accuracy_buffer
         )?;
 
-        // 2. Time
         let time_bonus = calculate_time_bonus(
             start_time,
             end_time,
             user_bet.creation_ts
         )?;
 
-        // 3. Conviction
         let conviction_bonus = calculate_conviction_bonus(user_bet.update_count);
 
-        // 4. Weight (Renamed Function)
         let mut weight = calculate_weight(
             user_bet.deposit,
             accuracy_score,
@@ -83,18 +78,15 @@ pub fn batch_calculate_outcome<'info>(
             conviction_bonus
         )?;
 
-        // 5. Admin Penalty (Optional: 5% penalty for forced calc)
         let penalty = weight.checked_div(20).unwrap(); 
         weight = weight.checked_sub(penalty).unwrap();
 
-        // 6. Update State
         pool.total_weight = pool.total_weight.checked_add(weight).unwrap();
         
         user_bet.calculated_weight = weight;
         user_bet.is_weight_added = true; 
         user_bet.status = BetStatus::Calculated;
 
-        // --- Serialize Data Back ---
         let mut new_data: Vec<u8> = Vec::new();
         user_bet.try_serialize(&mut new_data)?;
 
@@ -104,7 +96,6 @@ pub fn batch_calculate_outcome<'info>(
             return Err(ProgramError::AccountDataTooSmall.into());
         }
 
-        // --- Emit Event ---
         emit!(OutcomeCalculated {
             bet_address: user_bet_acc_info.key(),
             user: user_bet.owner,
