@@ -58,11 +58,9 @@ pub fn refund_bet(ctx: Context<RefundBet>) -> Result<()> {
     let clock = Clock::get()?;
     let user_bet = &mut ctx.accounts.user_bet;
     
-    // 1. Reveal Check
     require!(!user_bet.is_revealed, CustomError::CannotRefundRevealed);
     require!(clock.unix_timestamp > user_bet.end_timestamp, CustomError::SettlementTooEarly);
 
-    // 2. Calculate Penalty (1%)
     let penalty_bps = 100u64;
     let penalty_amount = user_bet.deposit
         .checked_mul(penalty_bps).unwrap()
@@ -70,7 +68,6 @@ pub fn refund_bet(ctx: Context<RefundBet>) -> Result<()> {
 
     let refund_amount = user_bet.deposit.checked_sub(penalty_amount).unwrap();
 
-    // 3. Execute Refund Transfer
     let pool = &mut ctx.accounts.pool;
     let pool_vault = &ctx.accounts.pool_vault;
 
@@ -79,7 +76,6 @@ pub fn refund_bet(ctx: Context<RefundBet>) -> Result<()> {
     let seeds = &[SEED_POOL, pool.name.as_bytes(), &[bump]]; 
     let signer = &[&seeds[..]];
 
-    // Refund to User
     token::transfer(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -93,7 +89,6 @@ pub fn refund_bet(ctx: Context<RefundBet>) -> Result<()> {
         refund_amount,
     )?;
 
-    // Penalty to Treasury
     if penalty_amount > 0 {
         token::transfer(
             CpiContext::new_with_signer(

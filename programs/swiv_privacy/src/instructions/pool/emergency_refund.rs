@@ -5,7 +5,6 @@ use crate::constants::{SEED_POOL, SEED_POOL_VAULT};
 use crate::errors::CustomError;
 use crate::events::BetRefunded;
 
-// 3 Days equivalent (test value can be lower)
 const REFUND_TIMEOUT_SECONDS: i64 = 60; 
 
 #[derive(Accounts)]
@@ -49,17 +48,14 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     let clock = Clock::get()?;
 
-    // Allow refund if current time is way past the bet/pool end time
     require!(
         clock.unix_timestamp > user_bet.end_timestamp + REFUND_TIMEOUT_SECONDS,
         CustomError::TimeoutNotMet
     );
 
 
-    // 2. Refund Amount (Full Deposit)
     let refund_amount = user_bet.deposit;
 
-    // 3. Transfer
     if refund_amount > 0 {
         let name_bytes = pool.name.as_bytes();
         let bump = pool.bump;
@@ -79,7 +75,6 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
             refund_amount,
         )?;
         
-        // Decrease actual balance
         pool.vault_balance = pool.vault_balance.checked_sub(refund_amount).unwrap();
     }
 
