@@ -10,7 +10,7 @@ pub mod utils;
 
 use instructions::*;
 
-declare_id!("6spJY9XSUz9KtS73jqojSMzwuCdwiroy8AX9nZ27is3U");
+declare_id!("2ykx9KUoWXsVedneofYFyS1QJJeM9FkeRdULkWpCFiwX");
 
 #[ephemeral]
 #[program]
