@@ -7,10 +7,6 @@ use ephemeral_rollups_sdk::anchor::{delegate, commit};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::commit_and_undelegate_accounts;
 
-// ------------------------------------------------------------------
-// DELEGATE INSTRUCTION
-// ------------------------------------------------------------------
-
 #[delegate]
 #[derive(Accounts)]
 #[instruction(request_id: String)]
@@ -27,7 +23,6 @@ pub struct DelegateBet<'info> {
 }
 
 pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()> {
-    // 1. Manually Deserialize UserBet to check ownership/pool
     let (_bump, pool_identifier, owner) = {
         let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
         let mut data_slice: &[u8] = &user_bet_data;
@@ -43,11 +38,9 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
     );
     require!(pool_pda == ctx.accounts.pool.key(), CustomError::PoolMismatch);
 
-    // 2. Prepare Seeds for SDK
     let pool_key = ctx.accounts.pool.key();
     let user_key = ctx.accounts.user.key();
     
-    // Seeds WITHOUT Bump (for SDK)
     let seeds_for_sdk = &[
         SEED_BET,
         pool_key.as_ref(),
@@ -57,7 +50,6 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
 
     let config = DelegateConfig::default();
     
-    // 3. Delegate (CPI)
     ctx.accounts.delegate_user_bet(
         &ctx.accounts.user, 
         seeds_for_sdk, 
@@ -73,10 +65,6 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
     msg!("Bet Delegated successfully");
     Ok(())
 }
-
-// ------------------------------------------------------------------
-// SINGLE UNDELEGATE (User initiated)
-// ------------------------------------------------------------------
 
 #[commit]
 #[derive(Accounts)]
@@ -109,7 +97,6 @@ pub fn undelegate_bet(ctx: Context<UndelegateBet>, _request_id: String) -> Resul
     let pool = &ctx.accounts.pool;
     let clock = Clock::get()?;
 
-    // Privacy Check
     require!(
         clock.unix_timestamp >= pool.end_time,
         CustomError::UndelegationTooEarly
@@ -132,10 +119,6 @@ pub fn undelegate_bet(ctx: Context<UndelegateBet>, _request_id: String) -> Resul
     Ok(())
 }
 
-// ------------------------------------------------------------------
-// BATCH UNDELEGATE (Bot/Admin initiated)
-// ------------------------------------------------------------------
-
 #[commit]
 #[derive(Accounts)]
 pub struct BatchUndelegateBets<'info> {
@@ -153,7 +136,6 @@ pub fn batch_undelegate_bets<'info>(ctx: Context<'_, '_, '_, 'info, BatchUndeleg
     let pool = &ctx.accounts.pool;
     let clock = Clock::get()?;
 
-    // 1. Enforce Time Lock (Strict Privacy)
     require!(
         clock.unix_timestamp >= pool.end_time,
         CustomError::UndelegationTooEarly
@@ -172,11 +154,10 @@ pub fn batch_undelegate_bets<'info>(ctx: Context<'_, '_, '_, 'info, BatchUndeleg
         &ctx.accounts.magic_program,
     )?;
 
-    // Emit event for each undelegated account
     for acc in ctx.remaining_accounts.iter() {
         emit!(BetUndelegated {
             bet_address: acc.key(),
-            user: Pubkey::default(), // Optimization: We don't read account data here to save CU
+            user: Pubkey::default(),
             is_batch: true,
         });
     }
