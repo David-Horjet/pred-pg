@@ -57,8 +57,7 @@ async function getAuthTokenWithRetry(
     } catch (e) {
       if (i === retries - 1) throw e; // Throw if last retry fails
       console.log(
-        `      ⚠️  Auth failed ("${e.message}"). Retrying (${
-          i + 1
+        `      ⚠️  Auth failed ("${e.message}"). Retrying (${i + 1
         }/${retries})...`,
       );
       await sleep(1000 * (i + 1)); // Wait 1s, then 2s, etc.
@@ -92,13 +91,13 @@ describe("Swiv Privacy: Production Flow", () => {
   const requestIds = ["req_1", "req_2"];
   const betPdas: PublicKey[] = [];
 
-  const TEE_URL = "https://devnet-as.magicblock.app";
-  const TEE_WS_URL = "wss://devnet-as.magicblock.app";
+  const teeUrl = "https://tee.magicblock.app"
+  const teeWsUrl = "wss://tee.magicblock.app"
 
   const ephemeralRpcEndpoint = (
-    process.env.EPHEMERAL_PROVIDER_ENDPOINT || TEE_URL
+    process.env.EPHEMERAL_PROVIDER_ENDPOINT || teeUrl
   ).replace(/\/$/, "");
-  const ephemeralWsEndpoint = process.env.EPHEMERAL_WS_ENDPOINT || TEE_WS_URL;
+  const ephemeralWsEndpoint = process.env.EPHEMERAL_WS_ENDPOINT || teeWsUrl;
 
   it("0. Health Check: Verify TEE Connection", async () => {
     console.log(`    🏥 Checking integrity of ${ephemeralRpcEndpoint}...`);
