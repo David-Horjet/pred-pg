@@ -64,6 +64,13 @@ pub mod swiv_privacy {
         instructions::permission::create_bet_permission(ctx, req_id)
     }
 
+    pub fn delegate_bet_permission<'info>(
+        ctx: Context<DelegateBetPermission>,
+        request_id: String,
+    ) -> Result<()> {
+        instructions::delegation::delegate_bet_permission(ctx, request_id)
+    }
+
     // --- POOL LOGIC ---
     pub fn create_pool(
         ctx: Context<CreatePool>,
@@ -85,19 +92,11 @@ pub mod swiv_privacy {
         )
     }
 
-    pub fn place_bet(
-        ctx: Context<PlaceBet>,
-        prediction: u64, 
-        request_id: String,
-    ) -> Result<()> {
+    pub fn place_bet(ctx: Context<PlaceBet>, prediction: u64, request_id: String) -> Result<()> {
         pool::place_bet(ctx, prediction, request_id)
     }
 
-    pub fn init_bet(
-        ctx: Context<InitBet>,
-        amount: u64,
-        request_id: String,
-    ) -> Result<()> {
+    pub fn init_bet(ctx: Context<InitBet>, amount: u64, request_id: String) -> Result<()> {
         pool::init_bet(ctx, amount, request_id)
     }
     pub fn resolve_pool(ctx: Context<ResolvePool>, final_outcome: u64) -> Result<()> {

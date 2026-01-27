@@ -6,6 +6,8 @@ use crate::events::{
     PoolDelegated, PoolUndelegated, 
     BetDelegated, BetUndelegated
 }; 
+use ephemeral_rollups_sdk::access_control::instructions::DelegatePermissionCpiBuilder;
+
 use ephemeral_rollups_sdk::anchor::{delegate, commit};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::commit_and_undelegate_accounts;
@@ -32,6 +34,9 @@ pub struct DelegatePool<'info> {
         bump
     )]
     pub pool: AccountInfo<'info>,
+
+    /// CHECK: The MagicBlock Ephemeral Rollup Validator (TEE)
+    pub validator: UncheckedAccount<'info>,
 }
 
 pub fn delegate_pool(ctx: Context<DelegatePool>, pool_name: String) -> Result<()> {
@@ -40,10 +45,15 @@ pub fn delegate_pool(ctx: Context<DelegatePool>, pool_name: String) -> Result<()
         pool_name.as_bytes(),
     ];
 
+    let config = DelegateConfig {
+        validator: Some(ctx.accounts.validator.key()),
+        ..DelegateConfig::default()
+    };
+
     ctx.accounts.delegate_pool(
         &ctx.accounts.admin, 
         seeds, 
-        DelegateConfig::default(),             
+        config,             
     )?;
 
     emit!(PoolDelegated {
@@ -54,8 +64,91 @@ pub fn delegate_pool(ctx: Context<DelegatePool>, pool_name: String) -> Result<()
     Ok(())
 }
 
+#[derive(Accounts)]
+#[instruction(request_id: String)]
+pub struct DelegateBetPermission<'info> {
+    #[account(mut)]
+    pub user: Signer<'info>,
 
-// --- BET DELEGATION ---
+    /// CHECK: Manually validated against the bet's pool_identifier.
+    pub pool: AccountInfo<'info>,
+
+    /// CHECK: The user's bet account (The Permissioned Account)
+    #[account(mut)]
+    pub user_bet: AccountInfo<'info>,
+
+    /// CHECK: The permission account associated with the user_bet.
+    #[account(mut)]
+    pub permission: UncheckedAccount<'info>,
+
+    /// CHECK: The MagicBlock Permission Program
+    pub permission_program: UncheckedAccount<'info>,
+
+    /// CHECK: The MagicBlock Delegation Program
+    pub delegation_program: UncheckedAccount<'info>,
+
+    /// CHECK: Delegation buffer (Derived by client or SDK)
+    #[account(mut)]
+    pub delegation_buffer: UncheckedAccount<'info>,
+
+    /// CHECK: Delegation record (Derived by client or SDK)
+    #[account(mut)]
+    pub delegation_record: UncheckedAccount<'info>,
+
+    /// CHECK: Delegation metadata (Derived by client or SDK)
+    #[account(mut)]
+    pub delegation_metadata: UncheckedAccount<'info>,
+
+    /// CHECK: The MagicBlock Ephemeral Rollup Validator (TEE)
+    pub validator: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, request_id: String) -> Result<()> {
+    let (pool_identifier, owner, bump) = {
+        let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
+        let mut data_slice: &[u8] = &user_bet_data;
+        let user_bet = UserBet::try_deserialize(&mut data_slice)?;
+        (user_bet.pool_identifier, user_bet.owner, user_bet.bump)
+    };
+
+    require!(owner == ctx.accounts.user.key(), CustomError::Unauthorized);
+
+    let (pool_pda, _) = Pubkey::find_program_address(
+        &[SEED_POOL, pool_identifier.as_bytes()], 
+        &crate::ID
+    );
+    require!(pool_pda == ctx.accounts.pool.key(), CustomError::PoolMismatch);
+
+    let pool_key = ctx.accounts.pool.key();
+    let user_key = ctx.accounts.user.key();
+
+    let seeds_for_signing = &[
+        SEED_BET,
+        pool_key.as_ref(), 
+        user_key.as_ref(),
+        request_id.as_bytes(),
+        &[bump],
+    ];
+    let signer_seeds = &[&seeds_for_signing[..]];
+
+    DelegatePermissionCpiBuilder::new(&ctx.accounts.permission_program)
+        .payer(&ctx.accounts.user)
+        .authority(&ctx.accounts.user, false) 
+        .permissioned_account(&ctx.accounts.user_bet, true) // user_bet signs
+        .permission(&ctx.accounts.permission)
+        .system_program(&ctx.accounts.system_program)
+        .owner_program(&ctx.accounts.permission_program)
+        .delegation_buffer(&ctx.accounts.delegation_buffer)
+        .delegation_record(&ctx.accounts.delegation_record)
+        .delegation_metadata(&ctx.accounts.delegation_metadata)
+        .delegation_program(&ctx.accounts.delegation_program)
+        .validator(Some(&ctx.accounts.validator))
+        .invoke_signed(signer_seeds)?;
+    msg!("Permission account delegated successfully.");
+    Ok(())
+}
 
 #[delegate]
 #[derive(Accounts)]
@@ -70,10 +163,12 @@ pub struct DelegateBet<'info> {
     /// CHECK: The user's bet account.
     #[account(mut, del)]
     pub user_bet: AccountInfo<'info>,
+
+    /// CHECK: The MagicBlock Ephemeral Rollup Validator (TEE)
+    pub validator: UncheckedAccount<'info>,
 }
 
 pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()> {
-    // Deserialize just enough to verify ownership
     let (pool_identifier, owner) = {
         let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
         let mut data_slice: &[u8] = &user_bet_data;
@@ -83,7 +178,6 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
 
     require!(owner == ctx.accounts.user.key(), CustomError::Unauthorized);
     
-    // Verify the pool address matches the bet's pool_identifier
     let (pool_pda, _) = Pubkey::find_program_address(
         &[SEED_POOL, pool_identifier.as_bytes()], 
         &crate::ID
@@ -100,10 +194,15 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
         request_id.as_bytes(),
     ];
     
+    let config = DelegateConfig {
+        validator: Some(ctx.accounts.validator.key()),
+        ..DelegateConfig::default()
+    };
+
     ctx.accounts.delegate_user_bet(
         &ctx.accounts.user, 
         seeds_for_sdk, 
-        DelegateConfig::default(),             
+        config,             
     )?;
 
     emit!(BetDelegated {
@@ -115,9 +214,6 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
     msg!("Bet delegated successfully.");
     Ok(())
 }
-
-
-// --- UNDELEGATION ---
 
 #[commit]
 #[derive(Accounts)]

@@ -22,9 +22,14 @@ import {
   SEED_GLOBAL_CONFIG,
   PERMISSION_PROGRAM_ID,
   sleep,
+  TEE_VALIDATOR,
   getAuthToken,
   verifyTeeRpcIntegrity,
+  DELEGATION_PROGRAM_ID,
   permissionPdaFromAccount,
+  delegationRecordPdaFromDelegatedAccount,
+  delegationMetadataPdaFromDelegatedAccount,
+  delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
 } from "./utils";
 import * as nacl from "tweetnacl";
 
@@ -92,8 +97,8 @@ describe("Swiv Privacy: Production Flow", () => {
   const requestIds = ["req_1", "req_2"];
   const betPdas: PublicKey[] = [];
 
-  const TEE_URL = "https://devnet-as.magicblock.app";
-  const TEE_WS_URL = "wss://devnet-as.magicblock.app";
+  const TEE_URL = "https://tee.magicblock.app";
+  const TEE_WS_URL = "wss://tee.magicblock.app";
 
   const ephemeralRpcEndpoint = (
     process.env.EPHEMERAL_PROVIDER_ENDPOINT || TEE_URL
@@ -102,15 +107,7 @@ describe("Swiv Privacy: Production Flow", () => {
 
   it("0. Health Check: Verify TEE Connection", async () => {
     console.log(`    🏥 Checking integrity of ${ephemeralRpcEndpoint}...`);
-    try {
-      await verifyTeeRpcIntegrity(ephemeralRpcEndpoint);
-      console.log("    ✅ TEE RPC is healthy and reachable.");
-    } catch (e) {
-      console.error("    ❌ TEE RPC Unreachable or Invalid:", e);
-      throw new Error(
-        "Cannot connect to MagicBlock TEE. Check your internet or try a different TEE_URL.",
-      );
-    }
+    const isVerified = await verifyTeeRpcIntegrity(TEE_URL);
   });
 
   it("1. Setup Environment", async () => {
@@ -173,7 +170,7 @@ describe("Swiv Privacy: Production Flow", () => {
   it("2. Create Pool (L1)", async () => {
     const now = Math.floor(Date.now() / 1000);
     const START_TIME = new anchor.BN(now);
-    END_TIME = START_TIME.add(new anchor.BN(100)); // 100s duration
+    END_TIME = START_TIME.add(new anchor.BN(60)); // 100s duration
 
     [poolPda] = PublicKey.findProgramAddressSync(
       [SEED_POOL, Buffer.from(POOL_NAME)],
@@ -215,6 +212,9 @@ describe("Swiv Privacy: Production Flow", () => {
     console.log("    ✅ Pool Created on L1");
   });
 
+  // Define this array outside the loop (alongside betPdas)
+  const permissionPdas: PublicKey[] = [];
+
   it("3.1. Secure Bet Setup (L1: Init, Permission, Delegate)", async () => {
     const betAmount = new anchor.BN(100 * 1e6);
 
@@ -232,10 +232,13 @@ describe("Swiv Privacy: Production Flow", () => {
         program.programId,
       );
       betPdas.push(betPda);
+
       const permissionPda = permissionPdaFromAccount(betPda);
+      permissionPdas.push(permissionPda);
 
       console.log(`    Processing User ${i + 1} Setup...`);
 
+      // 1. Init Bet
       await program.methods
         .initBet(betAmount, requestId)
         .accountsPartial({
@@ -252,6 +255,7 @@ describe("Swiv Privacy: Production Flow", () => {
         .signers([user])
         .rpc();
 
+      // 2. Create Permission
       await program.methods
         .createBetPermission(requestId)
         .accountsPartial({
@@ -266,17 +270,51 @@ describe("Swiv Privacy: Production Flow", () => {
         .signers([user])
         .rpc();
 
+      const delegationRecord =
+        delegationRecordPdaFromDelegatedAccount(permissionPda);
+
+      const delegationMetadata =
+        delegationMetadataPdaFromDelegatedAccount(permissionPda);
+
+      const delegationBuffer =
+        delegateBufferPdaFromDelegatedAccountAndOwnerProgram(
+          permissionPda,
+          PERMISSION_PROGRAM_ID,
+        );
+
+      await program.methods
+        .delegateBetPermission(requestId)
+        .accountsPartial({
+          user: user.publicKey,
+          pool: poolPda,
+          userBet: betPda,
+          permission: permissionPda,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          delegationProgram: DELEGATION_PROGRAM_ID,
+          delegationRecord: delegationRecord,
+          delegationMetadata: delegationMetadata,
+          delegationBuffer: delegationBuffer,
+          validator: TEE_VALIDATOR,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+
+      console.log(`      User ${i + 1}: Permission Delegated`);
+
+      // 3. Delegate Bet (Standard)
       await program.methods
         .delegateBet(requestId)
         .accountsPartial({
           user: user.publicKey,
           pool: poolPda,
           userBet: betPda,
+          validator: TEE_VALIDATOR,
         })
         .signers([user])
         .rpc();
 
-      console.log(`      User ${i + 1}: L1 Setup Complete (Delegated)`);
+      console.log(`      User ${i + 1}: L1 Setup Complete (Bet Delegated)`);
     }
   });
 
@@ -311,7 +349,10 @@ describe("Swiv Privacy: Production Flow", () => {
       // 2. Connect
       const erConnection = new anchor.web3.Connection(
         `${ephemeralRpcEndpoint}${tokenString}`,
-        { commitment: "confirmed", wsEndpoint: ephemeralWsEndpoint },
+        {
+          commitment: "confirmed",
+          wsEndpoint: `${ephemeralWsEndpoint}${tokenString}`,
+        },
       );
 
       const erProvider = new anchor.AnchorProvider(
@@ -419,15 +460,31 @@ describe("Swiv Privacy: Production Flow", () => {
         admin: admin.publicKey,
         globalConfig: globalConfigPda,
         pool: poolPda,
+        validator: TEE_VALIDATOR,
       })
       .rpc();
     console.log("    ✅ Pool Moved to TEE for Calculation");
   });
 
   it("6. Resolve & Settle", async () => {
-    const erConnection = new anchor.web3.Connection(ephemeralRpcEndpoint, {
+    let tokenString = "";
+    try {
+      const authToken = await getAuthTokenWithRetry(
+        ephemeralRpcEndpoint,
+        admin.publicKey,
+        async (message) => nacl.sign.detached(message, admin.secretKey),
+      );
+      tokenString = `?token=${authToken.token}`;
+      console.log(`    🔐 Admin Auth Token generated.`);
+    } catch (e) {
+      console.warn(
+        "    ❌ Auth failed. Server might be busy. Falling back to Anonymous.",
+      );
+    }
+
+    const erConnection = new anchor.web3.Connection(`${ephemeralRpcEndpoint}${tokenString}`, {
       commitment: "confirmed",
-      wsEndpoint: ephemeralWsEndpoint,
+      wsEndpoint: `${ephemeralWsEndpoint}${tokenString}`,
     });
     const erProvider = new anchor.AnchorProvider(
       erConnection,
@@ -466,6 +523,7 @@ describe("Swiv Privacy: Production Flow", () => {
       .accounts({ payer: admin.publicKey, pool: poolPda })
       .remainingAccounts(batchAccounts)
       .rpc();
+
     await erProgram.methods
       .undelegatePool()
       .accounts({

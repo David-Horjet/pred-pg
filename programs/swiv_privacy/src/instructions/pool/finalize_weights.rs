@@ -1,9 +1,9 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::state::{Pool, GlobalConfig};
 use crate::constants::{SEED_GLOBAL_CONFIG, SEED_POOL, SEED_POOL_VAULT};
 use crate::errors::CustomError;
+use crate::state::{GlobalConfig, Pool};
 use crate::events::WeightsFinalized;
+use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 #[derive(Accounts)]
 pub struct FinalizeWeights<'info> {
@@ -13,7 +13,6 @@ pub struct FinalizeWeights<'info> {
     #[account(
         seeds = [SEED_GLOBAL_CONFIG],
         bump,
-        constraint = global_config.admin == admin.key() @ CustomError::Unauthorized
     )]
     pub global_config: Account<'info, GlobalConfig>,
 
@@ -32,11 +31,7 @@ pub struct FinalizeWeights<'info> {
     )]
     pub pool_vault: Account<'info, TokenAccount>,
 
-    /// CHECK: Validated against GlobalConfig
-    #[account(
-        mut, 
-        constraint = treasury_token_account.owner == global_config.treasury_wallet
-    )]
+    #[account(mut)]
     pub treasury_token_account: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
@@ -44,48 +39,53 @@ pub struct FinalizeWeights<'info> {
 
 pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
-    let global_config = &ctx.accounts.global_config;
-    
+    let config = &ctx.accounts.global_config;
+
     require!(pool.is_resolved, CustomError::SettlementTooEarly);
     require!(!pool.weight_finalized, CustomError::AlreadySettled);
 
-    let total_pot = pool.vault_balance;
-    let fee_amount = total_pot
-        .checked_mul(global_config.protocol_fee_bps).unwrap()
-        .checked_div(10000).unwrap();
+    let total_assets = ctx.accounts.pool_vault.amount;
+    let mut distributable_amount = total_assets;
+    let mut fee_amount: u64 = 0;
 
-    if fee_amount > 0 {
-        let name_bytes = pool.name.as_bytes();
-        let bump = pool.bump;
-        let seeds = &[SEED_POOL, name_bytes, &[bump]];
-        let signer = &[&seeds[..]];
+    if config.protocol_fee_bps > 0 {
+        fee_amount = (total_assets as u128)
+            .checked_mul(config.protocol_fee_bps as u128)
+            .unwrap()
+            .checked_div(10000)
+            .unwrap() as u64;
 
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.pool_vault.to_account_info(),
-                    to: ctx.accounts.treasury_token_account.to_account_info(),
-                    authority: pool.to_account_info(),
-                },
-                signer,
-            ),
-            fee_amount,
-        )?;
+        if fee_amount > 0 {
+            let name_bytes = pool.name.as_bytes();
+            let bump = pool.bump;
+            let seeds = &[SEED_POOL, name_bytes, &[bump]];
+            let signer = &[&seeds[..]];
 
-        pool.vault_balance = pool.vault_balance.checked_sub(fee_amount).unwrap();
-        msg!("Protocol Fee Deducted: {}", fee_amount);
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.pool_vault.to_account_info(),
+                        to: ctx.accounts.treasury_token_account.to_account_info(),
+                        authority: pool.to_account_info(),
+                    },
+                    signer,
+                ),
+                fee_amount,
+            )?;
+
+            distributable_amount = total_assets.checked_sub(fee_amount).unwrap();
+        }
     }
 
+    pool.vault_balance = distributable_amount; 
     pool.weight_finalized = true;
-    
+
     emit!(WeightsFinalized {
         pool_name: pool.name.clone(),
         total_weight: pool.total_weight,
         fee_deducted: fee_amount,
     });
-    
-    msg!("Weights Finalized. Total Distributable: {}, Total Weight: {}", pool.vault_balance, pool.total_weight);
 
     Ok(())
 }

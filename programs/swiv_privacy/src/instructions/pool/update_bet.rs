@@ -31,7 +31,7 @@ pub fn update_bet(
     let pool = &ctx.accounts.pool; 
     let clock = Clock::get()?;
 
-    require!(clock.unix_timestamp < pool.end_time, CustomError::DurationTooShort);
+    require!(clock.unix_timestamp < pool.end_time, CustomError::AlreadySettled);
 
     user_bet.creation_ts = clock.unix_timestamp;
     user_bet.update_count = user_bet.update_count.checked_add(1).unwrap();

@@ -1,11 +1,9 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { SwivPrivacy } from "../target/types/swiv_privacy";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
-import {
-  createMint,
-} from "@solana/spl-token";
 import { SEED_GLOBAL_CONFIG } from "./utils";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { createMint } from "@solana/spl-token";
 
 describe("1. Setup & Admin", () => {
   const provider = anchor.AnchorProvider.env();
