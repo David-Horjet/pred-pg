@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
-use crate::state::GlobalConfig;
-use crate::constants::SEED_GLOBAL_CONFIG;
+use crate::state::Protocol;
+use crate::constants::SEED_PROTOCOL;
 use crate::errors::CustomError;
 use crate::events::ConfigUpdated;
 
@@ -15,11 +15,11 @@ pub struct UpdateConfig<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_GLOBAL_CONFIG],
+        seeds = [SEED_PROTOCOL],
         bump,
-        constraint = global_config.admin == admin.key() @ CustomError::Unauthorized,
+        constraint = protocol.admin == admin.key() @ CustomError::Unauthorized,
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub protocol: Account<'info, Protocol>,
 
     pub system_program: Program<'info, System>,
 }
@@ -29,14 +29,14 @@ pub fn update_config(
     new_treasury: Option<Pubkey>,
     new_protocol_fee_bps: Option<u64>,
 ) -> Result<()> {
-    let global_config = &mut ctx.accounts.global_config;
+    let protocol = &mut ctx.accounts.protocol;
 
     if let Some(treasury) = new_treasury {
-        global_config.treasury_wallet = treasury;
+        protocol.treasury_wallet = treasury;
     }
 
     if let Some(fee) = new_protocol_fee_bps {
-        global_config.protocol_fee_bps = fee;
+        protocol.protocol_fee_bps = fee;
     }
 
     emit!(ConfigUpdated {
@@ -44,7 +44,7 @@ pub fn update_config(
         protocol_fee_bps: new_protocol_fee_bps,
     });
 
-    msg!("Global Config Updated");
+    msg!("Protocol Config Updated");
 
     Ok(())
 }

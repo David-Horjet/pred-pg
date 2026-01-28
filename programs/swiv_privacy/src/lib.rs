@@ -10,7 +10,7 @@ pub mod utils;
 
 use instructions::*;
 
-declare_id!("6spJY9XSUz9KtS73jqojSMzwuCdwiroy8AX9nZ27is3U");
+declare_id!("8aAVXhM9uNdoijr7YJf3KG8yikHYdAUQZ6kmts9BBVLh");
 
 #[ephemeral]
 #[program]
@@ -42,8 +42,8 @@ pub mod swiv_privacy {
     }
 
     // --- DELEGATION ---
-    pub fn delegate_pool(ctx: Context<DelegatePool>, pool_name: String) -> Result<()> {
-        instructions::delegation::delegate_pool(ctx, pool_name)
+    pub fn delegate_pool(ctx: Context<DelegatePool>, pool_id: u64) -> Result<()> {
+        instructions::delegation::delegate_pool(ctx, pool_id)
     }
 
     pub fn undelegate_pool(ctx: Context<UndelegatePool>) -> Result<()> {
@@ -71,9 +71,10 @@ pub mod swiv_privacy {
         instructions::delegation::delegate_bet_permission(ctx, request_id)
     }
 
-    // --- POOL LOGIC ---
+    // --- POOL ---
     pub fn create_pool(
         ctx: Context<CreatePool>,
+        pool_id: u64,
         name: String,
         metadata: Option<String>,
         start_time: i64,
@@ -83,6 +84,7 @@ pub mod swiv_privacy {
     ) -> Result<()> {
         pool::create_pool(
             ctx,
+            pool_id,
             name,
             metadata,
             start_time,
@@ -92,6 +94,7 @@ pub mod swiv_privacy {
         )
     }
 
+    // --- BET ---
     pub fn place_bet(ctx: Context<PlaceBet>, prediction: u64, request_id: String) -> Result<()> {
         pool::place_bet(ctx, prediction, request_id)
     }
@@ -117,7 +120,6 @@ pub mod swiv_privacy {
         pool::claim_reward(ctx)
     }
 
-    // --- BET MANAGEMENT ---
     pub fn update_bet(ctx: Context<UpdateBet>, new_prediction: u64) -> Result<()> {
         pool::update_bet(ctx, new_prediction)
     }

@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
-use crate::state::{UserBet, GlobalConfig, Pool}; 
-use crate::constants::{SEED_BET, SEED_POOL, SEED_GLOBAL_CONFIG}; 
+use crate::state::{UserBet, Protocol, Pool}; 
+use crate::constants::{SEED_BET, SEED_POOL, SEED_PROTOCOL}; 
 use crate::errors::CustomError;
 use crate::events::{
     PoolDelegated, PoolUndelegated, 
@@ -14,23 +14,23 @@ use ephemeral_rollups_sdk::ephem::commit_and_undelegate_accounts;
 
 #[delegate]
 #[derive(Accounts)]
-#[instruction(pool_name: String)]
+#[instruction(pool_id: u64)]
 pub struct DelegatePool<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
     #[account(
-        seeds = [SEED_GLOBAL_CONFIG],
+        seeds = [SEED_PROTOCOL],
         bump,
-        constraint = global_config.admin == admin.key() @ CustomError::Unauthorized
+        constraint = protocol.admin == admin.key() @ CustomError::Unauthorized
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub protocol: Account<'info, Protocol>,
 
     /// CHECK: The main pool account.
    #[account(
         mut, 
         del, 
-        seeds = [SEED_POOL, pool_name.as_bytes()],
+        seeds = [SEED_POOL, admin.key().as_ref(), &pool_id.to_le_bytes()],
         bump
     )]
     pub pool: AccountInfo<'info>,
@@ -39,10 +39,14 @@ pub struct DelegatePool<'info> {
     pub validator: UncheckedAccount<'info>,
 }
 
-pub fn delegate_pool(ctx: Context<DelegatePool>, pool_name: String) -> Result<()> {
+pub fn delegate_pool(ctx: Context<DelegatePool>, pool_id: u64) -> Result<()> {
+    let admin_key = ctx.accounts.admin.key();
+    let admin_bytes = admin_key.as_ref();
+    let pool_id_bytes = pool_id.to_le_bytes();
     let seeds = &[
         SEED_POOL,
-        pool_name.as_bytes(),
+        admin_bytes,
+        &pool_id_bytes,
     ];
 
     let config = DelegateConfig {
@@ -106,20 +110,15 @@ pub struct DelegateBetPermission<'info> {
 }
 
 pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, request_id: String) -> Result<()> {
-    let (pool_identifier, owner, bump) = {
+    let (pool_pubkey, owner, bump) = {
         let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
         let mut data_slice: &[u8] = &user_bet_data;
         let user_bet = UserBet::try_deserialize(&mut data_slice)?;
-        (user_bet.pool_identifier, user_bet.owner, user_bet.bump)
+        (user_bet.pool, user_bet.owner, user_bet.bump)
     };
 
     require!(owner == ctx.accounts.user.key(), CustomError::Unauthorized);
-
-    let (pool_pda, _) = Pubkey::find_program_address(
-        &[SEED_POOL, pool_identifier.as_bytes()], 
-        &crate::ID
-    );
-    require!(pool_pda == ctx.accounts.pool.key(), CustomError::PoolMismatch);
+    require!(pool_pubkey == ctx.accounts.pool.key(), CustomError::PoolMismatch);
 
     let pool_key = ctx.accounts.pool.key();
     let user_key = ctx.accounts.user.key();
@@ -169,20 +168,15 @@ pub struct DelegateBet<'info> {
 }
 
 pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()> {
-    let (pool_identifier, owner) = {
+    let (pool_pubkey, owner) = {
         let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
         let mut data_slice: &[u8] = &user_bet_data;
         let user_bet = UserBet::try_deserialize(&mut data_slice)?;
-        (user_bet.pool_identifier, user_bet.owner)
+        (user_bet.pool, user_bet.owner)
     }; 
 
     require!(owner == ctx.accounts.user.key(), CustomError::Unauthorized);
-    
-    let (pool_pda, _) = Pubkey::find_program_address(
-        &[SEED_POOL, pool_identifier.as_bytes()], 
-        &crate::ID
-    );
-    require!(pool_pda == ctx.accounts.pool.key(), CustomError::PoolMismatch);
+    require!(pool_pubkey == ctx.accounts.pool.key(), CustomError::PoolMismatch);
 
     let pool_key = ctx.accounts.pool.key();
     let user_key = ctx.accounts.user.key();
@@ -222,11 +216,11 @@ pub struct UndelegatePool<'info> {
     pub admin: Signer<'info>,
 
     #[account(
-        seeds = [SEED_GLOBAL_CONFIG],
+        seeds = [SEED_PROTOCOL],
         bump,
-        constraint = global_config.admin == admin.key() @ CustomError::Unauthorized
+        constraint = protocol.admin == admin.key() @ CustomError::Unauthorized
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub protocol: Account<'info, Protocol>,
     
     /// CHECK: The Pool account
     #[account(mut)]
@@ -256,7 +250,7 @@ pub struct BatchUndelegateBets<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_POOL, pool.name.as_bytes()],
+        seeds = [SEED_POOL, pool.admin.as_ref(), &(pool.pool_id.to_le_bytes())],
         bump = pool.bump
     )]
     pub pool: Account<'info, Pool>,

@@ -12,12 +12,12 @@ pub struct UpdateBet<'info> {
     #[account(
         mut,
         constraint = user_bet.owner == user.key() @ CustomError::Unauthorized,
-        constraint = user_bet.status == BetStatus::Active @ CustomError::AlreadySettled
+        constraint = user_bet.status == BetStatus::Active @ CustomError::AlreadyClaimed
     )]
     pub user_bet: Box<Account<'info, UserBet>>,
 
     #[account(
-        seeds = [SEED_POOL, user_bet.pool_identifier.as_bytes()],
+        seeds = [SEED_POOL, pool.admin.as_ref(), &(pool.pool_id.to_le_bytes())],
         bump = pool.bump
     )]
     pub pool: Box<Account<'info, Pool>>,
@@ -31,7 +31,7 @@ pub fn update_bet(
     let pool = &ctx.accounts.pool; 
     let clock = Clock::get()?;
 
-    require!(clock.unix_timestamp < pool.end_time, CustomError::AlreadySettled);
+    require!(clock.unix_timestamp < pool.end_time, CustomError::AlreadyClaimed);
 
     user_bet.creation_ts = clock.unix_timestamp;
     user_bet.update_count = user_bet.update_count.checked_add(1).unwrap();

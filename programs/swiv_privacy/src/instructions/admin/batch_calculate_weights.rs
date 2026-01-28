@@ -27,7 +27,7 @@ pub fn batch_calculate_weights<'info>(
     let accounts_iter = &mut ctx.remaining_accounts.iter();
 
     require!(pool.is_resolved, CustomError::SettlementTooEarly);
-    require!(!pool.weight_finalized, CustomError::AlreadySettled);
+    require!(!pool.weight_finalized, CustomError::AlreadyClaimed);
 
     let result = pool.resolution_target;
     let start_time = pool.start_time;
@@ -38,9 +38,9 @@ pub fn batch_calculate_weights<'info>(
         let mut user_bet_data = user_bet_acc_info.try_borrow_mut_data()?;
         let mut user_bet = UserBet::try_deserialize(&mut &user_bet_data[..])?;
 
-        if user_bet.pool_identifier != pool.name { continue; }
+        if user_bet.pool != pool.key() { continue; }
         
-        if user_bet.status == BetStatus::Calculated || user_bet.status == BetStatus::Settled { 
+        if user_bet.status == BetStatus::Calculated || user_bet.status == BetStatus::Claimed { 
             continue; 
         }
 

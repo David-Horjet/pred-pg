@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
-use crate::state::GlobalConfig;
-use crate::constants::{SEED_GLOBAL_CONFIG};
+use crate::state::Protocol;
+use crate::constants::{SEED_PROTOCOL};
 use crate::events::ProtocolInitialized;
 
 #[derive(Accounts)]
@@ -11,11 +11,11 @@ pub struct InitializeProtocol<'info> {
     #[account(
         init,
         payer = admin,
-        space = GlobalConfig::BASE_LEN,
-        seeds = [SEED_GLOBAL_CONFIG],
+        space = Protocol::BASE_LEN,
+        seeds = [SEED_PROTOCOL],
         bump
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub protocol: Account<'info, Protocol>,
 
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -30,16 +30,17 @@ pub fn initialize_protocol(
     ctx: Context<InitializeProtocol>,
     protocol_fee_bps: u64 
 ) -> Result<()> {
-    let global_config = &mut ctx.accounts.global_config;
+    let protocol = &mut ctx.accounts.protocol;
     
-    global_config.admin = ctx.accounts.admin.key();
-    global_config.treasury_wallet = ctx.accounts.treasury_wallet.key();
+    protocol.admin = ctx.accounts.admin.key();
+    protocol.treasury_wallet = ctx.accounts.treasury_wallet.key();
     
-    global_config.protocol_fee_bps = protocol_fee_bps;
+    protocol.protocol_fee_bps = protocol_fee_bps;
     
-    global_config.paused = false;
-    global_config.total_users = 0;
-    global_config.batch_settle_wait_duration = 60; 
+    protocol.paused = false;
+    protocol.total_users = 0;
+    protocol.total_pools = 0;
+    protocol.batch_settle_wait_duration = 60; 
 
     emit!(ProtocolInitialized {
         admin: ctx.accounts.admin.key(),

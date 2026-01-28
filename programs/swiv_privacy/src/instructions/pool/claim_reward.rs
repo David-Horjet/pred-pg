@@ -12,7 +12,7 @@ pub struct ClaimReward<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_POOL, pool.name.as_bytes()],
+        seeds = [SEED_POOL, pool.admin.as_ref(), &(pool.pool_id.to_le_bytes())],
         bump = pool.bump
     )]
     pub pool: Box<Account<'info, Pool>>,
@@ -62,9 +62,10 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()> {
             CustomError::InsufficientLiquidity
         );
 
-        let name_bytes = pool.name.as_bytes();
+        let admin_bytes = pool.admin.as_ref();
+        let pool_id_bytes = pool.pool_id.to_le_bytes();
         let bump = pool.bump;
-        let seeds = &[SEED_POOL, name_bytes, &[bump]];
+        let seeds = &[SEED_POOL, admin_bytes, &pool_id_bytes, &[bump]];
         let signer = &[&seeds[..]];
 
         token::transfer(
@@ -82,7 +83,7 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()> {
         
     }
 
-    bet.status = BetStatus::Settled;
+    bet.status = BetStatus::Claimed;
 
     emit!(RewardClaimed {
         bet_address: bet.key(),

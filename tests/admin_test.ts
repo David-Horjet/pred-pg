@@ -1,7 +1,7 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { SwivPrivacy } from "../target/types/swiv_privacy";
-import { SEED_GLOBAL_CONFIG } from "./utils";
+import { SEED_PROTOCOL } from "./utils";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { createMint } from "@solana/spl-token";
 
@@ -20,7 +20,7 @@ describe("1. Setup & Admin", () => {
       6
     );
     const [configPda] = PublicKey.findProgramAddressSync(
-      [SEED_GLOBAL_CONFIG],
+      [SEED_PROTOCOL],
       program.programId
     );
 
@@ -39,7 +39,7 @@ describe("1. Setup & Admin", () => {
         .updateConfig(null, new anchor.BN(300))
         .accountsPartial({
           admin: admin.publicKey,
-          globalConfig: configPda,
+          protocol: configPda,
           systemProgram: SystemProgram.programId,
         })
         .rpc();

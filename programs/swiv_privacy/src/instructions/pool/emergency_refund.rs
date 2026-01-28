@@ -15,13 +15,13 @@ pub struct EmergencyRefund<'info> {
     #[account(
         mut,
         constraint = user_bet.owner == user.key() @ CustomError::Unauthorized,
-        constraint = user_bet.status != BetStatus::Settled @ CustomError::AlreadySettled
+        constraint = user_bet.status != BetStatus::Claimed @ CustomError::AlreadyClaimed
     )]
     pub user_bet: Box<Account<'info, UserBet>>,
 
     #[account(
         mut,
-        seeds = [SEED_POOL, pool.name.as_bytes()],
+        seeds = [SEED_POOL, pool.admin.as_ref(), &(pool.pool_id.to_le_bytes())],
         bump = pool.bump
     )]
     pub pool: Box<Account<'info, Pool>>,
@@ -57,9 +57,10 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
     let refund_amount = user_bet.deposit;
 
     if refund_amount > 0 {
-        let name_bytes = pool.name.as_bytes();
+        let admin_bytes = pool.admin.as_ref();
+        let pool_id_bytes = pool.pool_id.to_le_bytes();
         let bump = pool.bump;
-        let seeds = &[SEED_POOL, name_bytes, &[bump]];
+        let seeds = &[SEED_POOL, admin_bytes, &pool_id_bytes, &[bump]];
         let signer = &[&seeds[..]];
 
         token::transfer(
@@ -78,7 +79,7 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
         pool.vault_balance = pool.vault_balance.checked_sub(refund_amount).unwrap();
     }
 
-    user_bet.status = BetStatus::Settled;
+    user_bet.status = BetStatus::Claimed;
     
     emit!(BetRefunded {
         bet_address: user_bet.key(),
