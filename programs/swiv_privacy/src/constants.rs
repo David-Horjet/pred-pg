@@ -1,4 +1,4 @@
-pub const SEED_PROTOCOL: &[u8] = b"protocol";
+pub const SEED_PROTOCOL: &[u8] = b"protocol_v2";
 pub const SEED_POOL: &[u8] = b"pool";
 pub const SEED_POOL_VAULT: &[u8] = b"pool_vault";
 pub const SEED_BET: &[u8] = b"user_bet";
