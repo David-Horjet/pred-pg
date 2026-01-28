@@ -10,8 +10,8 @@ pub enum CustomError {
     MathOverflow,
     #[msg("Insufficient liquidity in pool.")]
     InsufficientLiquidity,
-    #[msg("Bet is already settled.")]
-    AlreadySettled,
+    #[msg("Bet is already claimed.")]
+    AlreadyClaimed,
     #[msg("Bet is already initialized.")]
     BetAlreadyInitialized,
     #[msg("Bet duration is too short.")]

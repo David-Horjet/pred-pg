@@ -5,13 +5,13 @@ pub enum BetStatus {
     Initialized,
     Active,
     Calculated, 
-    Settled,    
+    Claimed,    
 }
 
 #[account]
 pub struct UserBet {
     pub owner: Pubkey,
-    pub pool_identifier: String,
+    pub pool: Pubkey,
     
     pub deposit: u64,
     pub end_timestamp: i64,

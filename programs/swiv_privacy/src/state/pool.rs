@@ -4,6 +4,7 @@ use anchor_lang::prelude::*;
 pub struct Pool {
     pub admin: Pubkey,
     pub name: String,
+    pub pool_id: u64,
     pub token_mint: Pubkey,
     
     pub start_time: i64,
@@ -20,7 +21,8 @@ pub struct Pool {
     pub resolution_ts: i64,
     
     pub total_weight: u128,     
-    pub weight_finalized: bool, 
+    pub weight_finalized: bool,
+    pub total_participants: u64,
     
     pub bump: u8,
 }

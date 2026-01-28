@@ -1,7 +1,7 @@
-pub mod global_config;
+pub mod protocol;
 pub mod pool;
 pub mod user_bet;
 
-pub use global_config::*;
+pub use protocol::*;
 pub use pool::*;
 pub use user_bet::*;

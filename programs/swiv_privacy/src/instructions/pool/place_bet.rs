@@ -11,7 +11,7 @@ pub struct PlaceBet<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        seeds = [SEED_POOL, pool.name.as_bytes()],
+        seeds = [SEED_POOL, pool.admin.as_ref(), &(pool.pool_id.to_le_bytes())],
         bump = pool.bump
     )]
     pub pool: Box<Account<'info, Pool>>,

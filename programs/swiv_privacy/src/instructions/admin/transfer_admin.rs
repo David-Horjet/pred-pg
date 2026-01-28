@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
-use crate::state::GlobalConfig;
-use crate::constants::SEED_GLOBAL_CONFIG;
+use crate::state::Protocol;
+use crate::constants::SEED_PROTOCOL;
 use crate::errors::CustomError;
 use crate::events::AdminTransferred;
 
@@ -11,18 +11,18 @@ pub struct TransferAdmin<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_GLOBAL_CONFIG],
+        seeds = [SEED_PROTOCOL],
         bump,
-        constraint = global_config.admin == current_admin.key() @ CustomError::Unauthorized
+        constraint = protocol.admin == current_admin.key() @ CustomError::Unauthorized
     )]
-    pub global_config: Account<'info, GlobalConfig>,
+    pub protocol: Account<'info, Protocol>,
 }
 
 pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<()> {
-    let global_config = &mut ctx.accounts.global_config;
-    let old_admin = global_config.admin;
+    let protocol = &mut ctx.accounts.protocol;
+    let old_admin = protocol.admin;
     
-    global_config.admin = new_admin;
+    protocol.admin = new_admin;
     
     emit!(AdminTransferred {
         old_admin,

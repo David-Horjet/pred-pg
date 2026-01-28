@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::state::{GlobalConfig, Pool, UserBet, BetStatus};
-use crate::constants::{SEED_BET, SEED_POOL, SEED_POOL_VAULT, SEED_GLOBAL_CONFIG}; 
+use crate::state::{Protocol, Pool, UserBet, BetStatus};
+use crate::constants::{SEED_BET, SEED_POOL, SEED_POOL_VAULT, SEED_PROTOCOL}; 
 use crate::errors::CustomError;
 
 #[derive(Accounts)]
@@ -11,15 +11,15 @@ pub struct InitBet<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        seeds = [SEED_GLOBAL_CONFIG],
+        seeds = [SEED_PROTOCOL],
         bump,
-        constraint = !global_config.paused @ CustomError::Paused
+        constraint = !protocol.paused @ CustomError::Paused
     )]
-    pub global_config: Box<Account<'info, GlobalConfig>>,
+    pub protocol: Box<Account<'info, Protocol>>,
 
     #[account(
         mut,
-        seeds = [SEED_POOL, pool.name.as_bytes()],
+        seeds = [SEED_POOL, pool.admin.as_ref(), &(pool.pool_id.to_le_bytes())],
         bump = pool.bump
     )]
     pub pool: Box<Account<'info, Pool>>,
@@ -54,6 +54,7 @@ pub fn init_bet(
     amount: u64,
     _request_id: String, 
 ) -> Result<()> {
+    let pool_key = ctx.accounts.pool.key();
     let pool = &mut ctx.accounts.pool;
     let clock = Clock::get()?;
 
@@ -73,10 +74,11 @@ pub fn init_bet(
     )?;
 
     pool.vault_balance = pool.vault_balance.checked_add(amount).unwrap();
+    pool.total_participants = pool.total_participants.checked_add(1).unwrap();
 
     let user_bet = &mut ctx.accounts.user_bet;
     user_bet.owner = ctx.accounts.user.key();
-    user_bet.pool_identifier = pool.name.clone();
+    user_bet.pool = pool_key;
     user_bet.deposit = amount; 
     user_bet.end_timestamp = pool.end_time;
     user_bet.creation_ts = clock.unix_timestamp; 
