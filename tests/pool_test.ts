@@ -85,9 +85,10 @@ describe("Swiv Privacy: Production Flow", () => {
 
   let usdcMint: PublicKey;
   let userAtas: PublicKey[] = [];
-  let globalConfigPda: PublicKey;
+  let protocolPda: PublicKey;
   let poolPda: PublicKey;
   let vaultPda: PublicKey;
+  let poolId: number = 0;
 
   const POOL_NAME = `TEE-Pool-${Math.floor(Math.random() * 1000)}`;
   let END_TIME: anchor.BN;
@@ -111,7 +112,7 @@ describe("Swiv Privacy: Production Flow", () => {
   });
 
   it("1. Setup Environment", async () => {
-    [globalConfigPda] = PublicKey.findProgramAddressSync(
+    [protocolPda] = PublicKey.findProgramAddressSync(
       [SEED_PROTOCOL],
       program.programId,
     );
@@ -153,6 +154,25 @@ describe("Swiv Privacy: Production Flow", () => {
       );
     }
 
+    // Try to close old protocol account if it exists with wrong discriminator
+    try {
+      const accountInfo = await provider.connection.getAccountInfo(protocolPda);
+      if (accountInfo) {
+        // Try to recover by closing the account
+        const closeTx = new anchor.web3.Transaction().add(
+          anchor.web3.SystemProgram.transfer({
+            fromPubkey: protocolPda,
+            toPubkey: admin.publicKey,
+            lamports: accountInfo.lamports,
+          }),
+        );
+        // We can't directly close the account from here, so we'll just proceed
+        // The initializeProtocol will create a new one
+      }
+    } catch (e) {
+      /* Account doesn't exist yet */
+    }
+
     try {
       await program.methods
         .initializeProtocol(new anchor.BN(300))
@@ -162,18 +182,29 @@ describe("Swiv Privacy: Production Flow", () => {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-    } catch (e) {
-      /* Idempotent */
+    } catch (e: any) {
+      // If account discriminator mismatch, the account needs to be reset
+      if (e.message.includes("AccountDiscriminatorMismatch")) {
+        console.log("    ⚠️  Old protocol account exists. This is expected on first run after refactor.");
+        console.log("    💡 Run: solana-test-validator --reset");
+        throw new Error("Please reset localnet state and run tests again");
+      }
+      /* Otherwise idempotent */
     }
+
+    // Fetch protocol to get current pool count for poolId
+    const protocol = await program.account.protocol.fetch(protocolPda);
+    console.log("protocol: ", protocol);
+    poolId = protocol.totalPools.toNumber();
   });
 
   it("2. Create Pool (L1)", async () => {
     const now = Math.floor(Date.now() / 1000);
     const START_TIME = new anchor.BN(now);
-    END_TIME = START_TIME.add(new anchor.BN(60)); // 100s duration
+    END_TIME = START_TIME.add(new anchor.BN(60)); // 60s duration
 
     [poolPda] = PublicKey.findProgramAddressSync(
-      [SEED_POOL, Buffer.from(POOL_NAME)],
+      [SEED_POOL, admin.publicKey.toBuffer(), new anchor.BN(poolId).toBuffer('le', 8)],
       program.programId,
     );
     [vaultPda] = PublicKey.findProgramAddressSync(
@@ -190,6 +221,7 @@ describe("Swiv Privacy: Production Flow", () => {
 
     await program.methods
       .createPool(
+        new anchor.BN(poolId),
         POOL_NAME,
         "BTC/USDC",
         START_TIME,
@@ -198,7 +230,7 @@ describe("Swiv Privacy: Production Flow", () => {
         new anchor.BN(1000),
       )
       .accountsPartial({
-        globalConfig: globalConfigPda,
+        protocol: protocolPda,
         pool: poolPda,
         poolVault: vaultPda,
         tokenMint: usdcMint,
@@ -243,7 +275,7 @@ describe("Swiv Privacy: Production Flow", () => {
         .initBet(betAmount, requestId)
         .accountsPartial({
           user: user.publicKey,
-          globalConfig: globalConfigPda,
+          protocol: protocolPda,
           pool: poolPda,
           poolVault: vaultPda,
           userTokenAccount: userAtas[i],
@@ -455,10 +487,10 @@ describe("Swiv Privacy: Production Flow", () => {
 
   it("5. Delegate Pool (NOW we move Pool to TEE)", async () => {
     await program.methods
-      .delegatePool(POOL_NAME)
+      .delegatePool(new anchor.BN(poolId))
       .accountsPartial({
         admin: admin.publicKey,
-        globalConfig: globalConfigPda,
+        protocol: protocolPda,
         pool: poolPda,
         validator: TEE_VALIDATOR,
       })
@@ -497,7 +529,7 @@ describe("Swiv Privacy: Production Flow", () => {
       .resolvePool(TARGET_PRICE)
       .accountsPartial({
         admin: admin.publicKey,
-        globalConfig: globalConfigPda,
+        protocol: protocolPda,
         pool: poolPda,
       })
       .rpc();
@@ -528,13 +560,13 @@ describe("Swiv Privacy: Production Flow", () => {
       .undelegatePool()
       .accounts({
         admin: admin.publicKey,
-        globalConfig: globalConfigPda,
+        protocol: protocolPda,
         pool: poolPda,
       })
       .rpc();
     console.log("    ✅ Settled back to L1");
 
-    const config = await program.account.globalConfig.fetch(globalConfigPda);
+    const config = await program.account.protocol.fetch(protocolPda);
     const treasuryAta = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       admin,
@@ -546,7 +578,7 @@ describe("Swiv Privacy: Production Flow", () => {
       .finalizeWeights()
       .accountsPartial({
         admin: admin.publicKey,
-        globalConfig: globalConfigPda,
+        protocol: protocolPda,
         pool: poolPda,
         poolVault: vaultPda,
         treasuryTokenAccount: treasuryAta.address,
