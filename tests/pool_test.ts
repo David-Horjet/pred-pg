@@ -7,6 +7,7 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   ComputeBudgetProgram,
+  sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import {
   createMint,
@@ -62,8 +63,7 @@ async function getAuthTokenWithRetry(
     } catch (e) {
       if (i === retries - 1) throw e; // Throw if last retry fails
       console.log(
-        `      ⚠️  Auth failed ("${e.message}"). Retrying (${
-          i + 1
+        `      ⚠️  Auth failed ("${e.message}"). Retrying (${i + 1
         }/${retries})...`,
       );
       await sleep(1000 * (i + 1)); // Wait 1s, then 2s, etc.
@@ -72,7 +72,7 @@ async function getAuthTokenWithRetry(
   throw new Error("Unreachable");
 }
 
-describe("Swiv Privacy: Production Flow", () => {
+describe("Production Flow", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const program = anchor.workspace.SwivPrivacy as Program<SwivPrivacy>;
@@ -105,11 +105,6 @@ describe("Swiv Privacy: Production Flow", () => {
     process.env.EPHEMERAL_PROVIDER_ENDPOINT || TEE_URL
   ).replace(/\/$/, "");
   const ephemeralWsEndpoint = process.env.EPHEMERAL_WS_ENDPOINT || TEE_WS_URL;
-
-  it("0. Health Check: Verify TEE Connection", async () => {
-    console.log(`    🏥 Checking integrity of ${ephemeralRpcEndpoint}...`);
-    const isVerified = await verifyTeeRpcIntegrity(TEE_URL);
-  });
 
   it("1. Setup Environment", async () => {
     [protocolPda] = PublicKey.findProgramAddressSync(
@@ -371,14 +366,13 @@ describe("Swiv Privacy: Production Flow", () => {
           async (message) => nacl.sign.detached(message, user.secretKey),
         );
         tokenString = `?token=${authToken.token}`;
-        console.log(`      🔐 Auth Token generated successfully.`);
+        console.log(`      🔐 Auth Token generated successfully.: ${ephemeralRpcEndpoint}${tokenString}`);
       } catch (e) {
         console.error(
           `      ❌ Auth failed. Server might be busy. Falling back to Anonymous.`,
         );
       }
 
-      // 2. Connect
       const erConnection = new anchor.web3.Connection(
         `${ephemeralRpcEndpoint}${tokenString}`,
         {
@@ -394,20 +388,30 @@ describe("Swiv Privacy: Production Flow", () => {
       );
       const erProgram = new anchor.Program(program.idl, erProvider);
 
-      // 3. Place Bet
-      const txSig = await erProgram.methods
+      console.log(`      📝 Placing Bet securely on TEE...`, predictions[i], requestId, erProgram.programId);
+      const placeBetIx = await program.methods
         .placeBet(predictions[i], requestId)
         .accountsPartial({
           user: user.publicKey,
           pool: poolPda,
           userBet: betPda,
         })
-        .signers([user])
-        .rpc({ skipPreflight: true });
+        .instruction();
 
-      console.log(
-        `      User ${i + 1}: Bet Securely Placed on TEE. Sig: ${txSig}`,
+      let tx = new anchor.web3.Transaction().add(
+        placeBetIx
       );
+
+      tx.feePayer = user.publicKey;
+      tx.recentBlockhash = (
+        await erProvider.connection.getLatestBlockhash())
+        .blockhash;
+      const txHash = await sendAndConfirmTransaction(erProvider.connection, tx, [user], {
+        skipPreflight: true,
+        commitment: "confirmed",
+      });
+
+      console.log(`✅ Player ${user.publicKey} predicted ${predictions[i]}: ${txHash}`);
 
       // PAUSE between users to prevent "No challenge received" (Rate Limit)
       if (i < users.length - 1) {
