@@ -209,7 +209,6 @@ describe("Production Flow", () => {
       .createPool(
         new anchor.BN(poolId),
         POOL_NAME,
-        "BTC/USDC",
         START_TIME,
         END_TIME,
         new anchor.BN(10),
@@ -220,8 +219,8 @@ describe("Production Flow", () => {
         pool: poolPda,
         poolVault: vaultPda,
         tokenMint: usdcMint,
-        admin: admin.publicKey,
-        adminTokenAccount: adminAta.address,
+        createdBy: admin.publicKey,
+        createdByTokenAccount: adminAta.address,
         tokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
@@ -585,9 +584,9 @@ describe("Production Flow", () => {
     let poolAccount = await program.account.pool.fetch(poolPda);
     const formattedPoolAccount = {
       poolId: poolAccount.poolId.toNumber(),
-      admin: poolAccount.admin.toBase58(),
-      name: poolAccount.name,
-      tokenMint: poolAccount.tokenMint.toBase58(),
+      createdBy: poolAccount.createdBy.toBase58(),
+      title: poolAccount.title,
+      stakeTokenMint: poolAccount.stakeTokenMint.toBase58(),
 
       startTime: poolAccount.startTime.toNumber(),
       endTime: poolAccount.endTime.toNumber(),
@@ -595,10 +594,8 @@ describe("Production Flow", () => {
       maxAccuracyBuffer: poolAccount.maxAccuracyBuffer.toNumber(),
       convictionBonusBps: poolAccount.convictionBonusBps.toNumber(),
 
-      metadata: poolAccount.metadata,
-
-      vaultBalance: poolAccount.vaultBalance.toString(),
-      resolutionTarget: poolAccount.resolutionTarget?.toString() ?? null,
+      totalVolume: poolAccount.totalVolume.toString(),
+      resolutionResult: poolAccount.resolutionResult?.toString() ?? null,
 
       isResolved: poolAccount.isResolved,
       resolutionTs: poolAccount.resolutionTs?.toNumber() ?? null,

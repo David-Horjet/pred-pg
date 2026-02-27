@@ -75,8 +75,7 @@ pub mod swiv_privacy {
     pub fn create_pool(
         ctx: Context<CreatePool>,
         pool_id: u64,
-        name: String,
-        metadata: Option<String>,
+        title: String,
         start_time: i64,
         end_time: i64,
         max_accuracy_buffer: u64,
@@ -85,8 +84,7 @@ pub mod swiv_privacy {
         pool::create_pool(
             ctx,
             pool_id,
-            name,
-            metadata,
+            title,
             start_time,
             end_time,
             max_accuracy_buffer,
