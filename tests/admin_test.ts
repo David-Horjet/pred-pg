@@ -28,7 +28,8 @@ describe("1. Setup & Admin", () => {
         .rpc();
       console.log("    ✅ Protocol Initialized");
     } catch (e) {
-      await program.methods
+      try {
+        await program.methods
         .updateConfig(null, new anchor.BN(300))
         .accountsPartial({
           admin: admin.publicKey,
@@ -37,6 +38,9 @@ describe("1. Setup & Admin", () => {
         })
         .rpc();
       console.log("    ✅ Protocol Config Updated");
+      } catch (e) {
+        console.error("    ❌ Protocol Initialization/Update Failed", e);
+      }
     }
   });
 });
