@@ -18,7 +18,7 @@ pub struct PlaceBet<'info> {
 
     #[account(
         mut,
-        seeds = [SEED_BET, pool.key().as_ref(), user.key().as_ref(), request_id.as_bytes()], 
+        seeds = [SEED_BET, pool.key().as_ref(), user.key().as_ref()],
         bump = bet.bump,
         constraint = bet.user_pubkey == user.key() @ CustomError::Unauthorized
     )]
@@ -28,15 +28,14 @@ pub struct PlaceBet<'info> {
 pub fn place_bet(
     ctx: Context<PlaceBet>,
     prediction: u64, 
-    _request_id: String, 
+    _request_id: String,
 ) -> Result<()> {
     let bet = &mut ctx.accounts.bet;
     let pool = &ctx.accounts.pool;
 
-    require!(bet.status == BetStatus::Pending, CustomError::BetAlreadyInitialized);
+    require!(bet.status == BetStatus::Active, CustomError::BetAlreadyInitialized);
 
     bet.prediction = prediction;
-    bet.status = BetStatus::Active;
     bet.update_count = bet.update_count.checked_add(1).unwrap();
 
     emit!(BetPlaced {

@@ -69,7 +69,6 @@ pub fn delegate_pool(ctx: Context<DelegatePool>, pool_id: u64) -> Result<()> {
 }
 
 #[derive(Accounts)]
-#[instruction(request_id: String)]
 pub struct DelegateBetPermission<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -109,7 +108,7 @@ pub struct DelegateBetPermission<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, request_id: String) -> Result<()> {
+pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, _request_id: String) -> Result<()> {
     let (pool_pubkey, owner, bump) = {
         let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
         let mut data_slice: &[u8] = &user_bet_data;
@@ -127,7 +126,6 @@ pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, request_id: 
         SEED_BET,
         pool_key.as_ref(), 
         user_key.as_ref(),
-        request_id.as_bytes(),
         &[bump],
     ];
     let signer_seeds = &[&seeds_for_signing[..]];
@@ -151,7 +149,6 @@ pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, request_id: 
 
 #[delegate]
 #[derive(Accounts)]
-#[instruction(request_id: String)]
 pub struct DelegateBet<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
@@ -185,7 +182,6 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
         SEED_BET,
         pool_key.as_ref(), 
         user_key.as_ref(),
-        request_id.as_bytes(),
     ];
     
     let config = DelegateConfig {

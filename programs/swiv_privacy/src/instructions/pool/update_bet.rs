@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::{Bet, Pool, BetStatus};
-use crate::constants::{SEED_POOL};
+use crate::constants::{SEED_BET, SEED_POOL};
 use crate::errors::CustomError;
 use crate::events::BetUpdated;
 
@@ -10,17 +10,20 @@ pub struct UpdateBet<'info> {
     pub user: Signer<'info>,
 
     #[account(
-        mut,
-        constraint = bet.user_pubkey == user.key() @ CustomError::Unauthorized,
-        constraint = bet.status == BetStatus::Active @ CustomError::AlreadyClaimed
-    )]
-    pub bet: Box<Account<'info, Bet>>,
-
-    #[account(
         seeds = [SEED_POOL, pool.created_by.as_ref(), &(pool.pool_id.to_le_bytes())],
         bump = pool.bump
     )]
     pub pool: Box<Account<'info, Pool>>,
+
+    #[account(
+        mut,
+        seeds = [SEED_BET, pool.key().as_ref(), user.key().as_ref()],
+        bump = bet.bump,
+        constraint = bet.user_pubkey == user.key() @ CustomError::Unauthorized,
+        constraint = bet.pool_pubkey == pool.key() @ CustomError::PoolMismatch,
+        constraint = bet.status == BetStatus::Active @ CustomError::AlreadyClaimed
+    )]
+    pub bet: Box<Account<'info, Bet>>,
 }
 
 pub fn update_bet(
