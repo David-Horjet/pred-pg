@@ -6,7 +6,6 @@ use ephemeral_rollups_sdk::access_control::instructions::CreatePermissionCpiBuil
 use ephemeral_rollups_sdk::access_control::structs::{Member, MembersArgs, AUTHORITY_FLAG};
 
 #[derive(Accounts)]
-#[instruction(request_id: String)]
 pub struct CreateBetPermission<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
@@ -30,7 +29,7 @@ pub struct CreateBetPermission<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn create_bet_permission(ctx: Context<CreateBetPermission>, request_id: String) -> Result<()> {
+pub fn create_bet_permission(ctx: Context<CreateBetPermission>, _request_id: String) -> Result<()> {
     let pool_key = ctx.accounts.pool.key();
     let user_key = ctx.accounts.user.key();
 
@@ -38,7 +37,6 @@ pub fn create_bet_permission(ctx: Context<CreateBetPermission>, request_id: Stri
         SEED_BET.to_vec(),
         pool_key.to_bytes().to_vec(),
         user_key.to_bytes().to_vec(),
-        request_id.as_bytes().to_vec(),
     ];
 
     let (derived_pda, bump) = Pubkey::find_program_address(

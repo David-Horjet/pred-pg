@@ -91,6 +91,7 @@ describe("Production Flow", () => {
   const TARGET_PRICE = new anchor.BN(75);
 
   const predictions = [new anchor.BN(76), new anchor.BN(80)];
+  const updatedPredictions = [new anchor.BN(78), new anchor.BN(80)];
   const requestIds = ["req_1", "req_2"];
   const betPdas: PublicKey[] = [];
   const permissionPdas: PublicKey[] = [];
@@ -247,7 +248,6 @@ describe("Production Flow", () => {
           SEED_BET,
           poolPda.toBuffer(),
           user.publicKey.toBuffer(),
-          Buffer.from(requestId),
         ],
         program.programId,
       );
@@ -329,6 +329,38 @@ describe("Production Flow", () => {
     }
   });
 
+  it("3.1.b Duplicate initBet should fail for same user/pool", async () => {
+    const duplicateAmount = new anchor.BN(10 * 1e6);
+    const user = users[0];
+    const duplicateRequestId = "req_duplicate_should_fail";
+
+    let failed = false;
+    try {
+      await program.methods
+        .initBet(duplicateAmount, duplicateRequestId)
+        .accountsPartial({
+          user: user.publicKey,
+          protocol: protocolPda,
+          pool: poolPda,
+          poolVault: vaultPda,
+          userTokenAccount: userAtas[0],
+          bet: betPdas[0],
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc();
+    } catch (_e) {
+      failed = true;
+    }
+
+    if (!failed) {
+      throw new Error("Expected second initBet call to fail for same user/pool bet PDA");
+    }
+
+    console.log("    ✅ Duplicate initBet rejected for canonical user/pool bet");
+  });
+
   it("3.2. Secure Bet Execution (TEE: Place Bet)", async () => {
     console.log("    🎯 Step 3.2: Executing Private Bets on TEE...");
 
@@ -374,6 +406,38 @@ describe("Production Flow", () => {
         skipPreflight: true,
       });
       console.log(`      ✅ Bet Executed Privately. TEE Sig: ${txSig}`);
+
+      if (i === 0) {
+        console.log(
+          `      🔁 Updating User ${i + 1} bet via updateBet (Prediction: ${updatedPredictions[
+            i
+          ].toString()})...`,
+        );
+
+        const updateBetIx = await program.methods
+          .updateBet(updatedPredictions[i])
+          .accountsPartial({
+            user: user.publicKey,
+            pool: poolPda,
+            bet: betPda,
+          })
+          .instruction();
+
+        const updateTx = new anchor.web3.Transaction().add(updateBetIx);
+        updateTx.feePayer = user.publicKey;
+        updateTx.recentBlockhash = (await teeConnection.getLatestBlockhash()).blockhash;
+
+        const updateSig = await sendAndConfirmTransaction(
+          teeConnection,
+          updateTx,
+          [user],
+          {
+            skipPreflight: true,
+          },
+        );
+
+        console.log(`      ✅ Bet Updated Privately. TEE Sig: ${updateSig}`);
+      }
 
       await sleep(1000);
     }
@@ -704,13 +768,24 @@ describe("Production Flow", () => {
   });
 
   it("7. Public Verify", async () => {
-    const betData = await program.account.bet.fetch(betPdas[1]);
-    console.log(`    📖 L1 Prediction: ${betData.prediction.toString()}`);
-    if (!betData.prediction.eq(predictions[1])) {
+    const user1BetData = await program.account.bet.fetch(betPdas[0]);
+    const user2BetData = await program.account.bet.fetch(betPdas[1]);
+
+    console.log(`    📖 L1 User1 Prediction: ${user1BetData.prediction.toString()}`);
+    console.log(`    📖 L1 User2 Prediction: ${user2BetData.prediction.toString()}`);
+
+    if (!user1BetData.prediction.eq(updatedPredictions[0])) {
       throw new Error(
-        `❌ Data Mismatch: Expected ${predictions[1]}, got ${betData.prediction}`,
+        `❌ Data Mismatch (User1): Expected ${updatedPredictions[0]}, got ${user1BetData.prediction}`,
       );
     }
+
+    if (!user2BetData.prediction.eq(predictions[1])) {
+      throw new Error(
+        `❌ Data Mismatch (User2): Expected ${predictions[1]}, got ${user2BetData.prediction}`,
+      );
+    }
+
     console.log("    ✅ Transparency Confirmed.");
   });
 });

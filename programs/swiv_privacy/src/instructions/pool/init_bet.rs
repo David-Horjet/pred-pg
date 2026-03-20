@@ -39,7 +39,7 @@ pub struct InitBet<'info> {
         init,
         payer = user,
         space = Bet::SPACE,
-        seeds = [SEED_BET, pool.key().as_ref(), user.key().as_ref(), request_id.as_bytes()], 
+        seeds = [SEED_BET, pool.key().as_ref(), user.key().as_ref()],
         bump
     )]
     pub bet: Box<Account<'info, Bet>>,
@@ -52,7 +52,7 @@ pub struct InitBet<'info> {
 pub fn init_bet(
     ctx: Context<InitBet>,
     amount: u64,
-    _request_id: String, 
+    _request_id: String,
 ) -> Result<()> {
     let pool_key = ctx.accounts.pool.key();
     let pool = &mut ctx.accounts.pool;
@@ -86,7 +86,7 @@ pub fn init_bet(
     bet.calculated_weight = 0;
     bet.is_weight_added = false;
     
-    bet.status = BetStatus::Pending;
+    bet.status = BetStatus::Active;
     bet.prediction = 0; 
     bet.bump = ctx.bumps.bet;
 
