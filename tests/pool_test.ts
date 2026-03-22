@@ -479,13 +479,16 @@ describe("Production Flow", () => {
 
     console.log(`      🎯 Updating bet prediction and increasing stake on TEE...`);
     
-    const newPredictionForUpdate = new anchor.BN(77); // Slightly different prediction
+    const newPredictionForUpdate = new anchor.BN(77); 
     const updateBetIx = await program.methods
       .updateBet(newPredictionForUpdate, additionalStake)
       .accountsPartial({
         user: user.publicKey,
         pool: poolPda,
         bet: betPda,
+        poolVault: vaultPda,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        userTokenAccount: userAtas[0],
       })
       .instruction();
 
