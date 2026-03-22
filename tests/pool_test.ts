@@ -30,7 +30,7 @@ import {
   delegationRecordPdaFromDelegatedAccount,
   delegationMetadataPdaFromDelegatedAccount,
   delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
-  waitUntilPermissionActive, 
+  waitUntilPermissionActive,
 } from "./utils";
 import * as nacl from "tweetnacl";
 
@@ -420,6 +420,9 @@ describe("Production Flow", () => {
             user: user.publicKey,
             pool: poolPda,
             bet: betPda,
+            poolVault: vaultPda,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            userTokenAccount: userAtas[0],
           })
           .instruction();
 
@@ -478,8 +481,8 @@ describe("Production Flow", () => {
     );
 
     console.log(`      🎯 Updating bet prediction and increasing stake on TEE...`);
-    
-    const newPredictionForUpdate = new anchor.BN(77); 
+
+    const newPredictionForUpdate = new anchor.BN(77);
     const updateBetIx = await program.methods
       .updateBet(newPredictionForUpdate, additionalStake)
       .accountsPartial({
