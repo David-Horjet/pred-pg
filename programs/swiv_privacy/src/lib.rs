@@ -118,8 +118,8 @@ pub mod swiv_privacy {
         pool::claim_reward(ctx)
     }
 
-    pub fn update_bet(ctx: Context<UpdateBet>, new_prediction: u64) -> Result<()> {
-        pool::update_bet(ctx, new_prediction)
+    pub fn update_bet(ctx: Context<UpdateBet>, new_prediction: u64, additional_stake: u64) -> Result<()> {
+        pool::update_bet(ctx, new_prediction, additional_stake)
     }
 
     pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {

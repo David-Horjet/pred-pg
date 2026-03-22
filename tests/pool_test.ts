@@ -14,6 +14,7 @@ import {
   getOrCreateAssociatedTokenAccount,
   mintTo,
   TOKEN_PROGRAM_ID,
+  createTransferInstruction,
 } from "@solana/spl-token";
 import * as fs from "fs";
 import * as path from "path";
@@ -415,7 +416,7 @@ describe("Production Flow", () => {
         );
 
         const updateBetIx = await program.methods
-          .updateBet(updatedPredictions[i])
+          .updateBet(updatedPredictions[i], new anchor.BN(0))
           .accountsPartial({
             user: user.publicKey,
             pool: poolPda,
@@ -441,6 +442,128 @@ describe("Production Flow", () => {
 
       await sleep(1000);
     }
+  });
+
+  it("3.3. Secure Bet Stake Increase", async () => {
+    console.log("    💰 Step 3.3: Testing Bet Stake Increase on TEE...");
+
+    const user = users[0];
+    const betPda = betPdas[0];
+    const additionalStake = new anchor.BN(50 * 1e6); // Add 50 USDC
+
+    // Get pool state before
+    let poolBefore = await program.account.pool.fetch(poolPda);
+    const volumeBefore = poolBefore.totalVolume;
+
+    // Get bet state before
+    let betBefore = await program.account.bet.fetch(betPda);
+    const stakeBefore = betBefore.stake;
+
+    console.log(`      📊 Before Increase:`);
+    console.log(`         Bet Stake: ${stakeBefore.toString()}`);
+    console.log(`         Pool Volume: ${volumeBefore.toString()}`);
+
+    // Get TEE connection with auth
+    const authToken = await getAuthTokenWithRetry(
+      ephemeralRpcEndpoint,
+      user.publicKey,
+      async (msg) => nacl.sign.detached(msg, user.secretKey),
+    );
+
+    const teeConnection = new anchor.web3.Connection(
+      `${TEE_URL}?token=${authToken.token}`,
+      {
+        commitment: "confirmed",
+        wsEndpoint: `${TEE_WS_URL}?token=${authToken.token}`,
+      },
+    );
+
+    // First, send tokens to pool vault on L1 to simulate user sending more stake
+    console.log(`      🔄 User sending additional ${additionalStake.toNumber() / 1e6} USDC to pool vault...`);
+    
+    const transferIx = anchor.web3.SystemProgram.transfer({
+      fromPubkey: user.publicKey,
+      toPubkey: vaultPda,
+      lamports: 0, // This is just for demonstration
+    });
+
+    // Actually transfer tokens on L1
+    const transferTokensIx = createTransferInstruction(
+      userAtas[0],
+      vaultPda,
+      user.publicKey,
+      additionalStake.toNumber(),
+    );
+
+    const l1Tx = new anchor.web3.Transaction().add(transferTokensIx);
+    const { blockhash: l1Blockhash } = await provider.connection.getLatestBlockhash();
+    l1Tx.recentBlockhash = l1Blockhash;
+    l1Tx.feePayer = user.publicKey;
+
+    const l1Sig = await anchor.web3.sendAndConfirmTransaction(provider.connection, l1Tx, [user]);
+    console.log(`      ✅ Tokens transferred on L1: ${l1Sig}`);
+
+    // Now update bet with stake increase on TEE
+    console.log(`      🎯 Updating bet prediction and increasing stake on TEE...`);
+    
+    const newPredictionForUpdate = new anchor.BN(77); // Slightly different prediction
+    const updateBetIx = await program.methods
+      .updateBet(newPredictionForUpdate, additionalStake)
+      .accountsPartial({
+        user: user.publicKey,
+        pool: poolPda,
+        bet: betPda,
+      })
+      .instruction();
+
+    const updateTx = new anchor.web3.Transaction().add(updateBetIx);
+    updateTx.feePayer = user.publicKey;
+    updateTx.recentBlockhash = (await teeConnection.getLatestBlockhash()).blockhash;
+
+    const updateSig = await sendAndConfirmTransaction(
+      teeConnection,
+      updateTx,
+      [user],
+      {
+        skipPreflight: true,
+      },
+    );
+
+    console.log(`      ✅ Bet Updated with Stake Increase. TEE Sig: ${updateSig}`);
+    await sleep(1000);
+
+    // Verify the stake was increased and pool volume updated
+    let betAfter = await program.account.bet.fetch(betPda);
+    let poolAfter = await program.account.pool.fetch(poolPda);
+
+    const stakeAfter = betAfter.stake;
+    const volumeAfter = poolAfter.totalVolume;
+
+    console.log(`      📊 After Increase:`);
+    console.log(`         Bet Stake: ${stakeAfter.toString()}`);
+    console.log(`         Pool Volume: ${volumeAfter.toString()}`);
+    console.log(`         Prediction Updated: ${betAfter.prediction.toString()}`);
+
+    // Assertions
+    if (!stakeAfter.eq(stakeBefore.add(additionalStake))) {
+      throw new Error(
+        `❌ Stake not increased correctly. Expected ${stakeBefore.add(additionalStake).toString()}, got ${stakeAfter.toString()}`,
+      );
+    }
+
+    if (!volumeAfter.eq(volumeBefore.add(additionalStake))) {
+      throw new Error(
+        `❌ Pool volume not updated correctly. Expected ${volumeBefore.add(additionalStake).toString()}, got ${volumeAfter.toString()}`,
+      );
+    }
+
+    if (!betAfter.prediction.eq(newPredictionForUpdate)) {
+      throw new Error(
+        `❌ Prediction not updated. Expected ${newPredictionForUpdate.toString()}, got ${betAfter.prediction.toString()}`,
+      );
+    }
+
+    console.log(`    ✅ Stake Increase Verified Successfully!`);
   });
 
   it("4. Privacy Verification (TEE Snoop Check)", async () => {
