@@ -496,16 +496,16 @@ describe("Production Flow", () => {
       .instruction();
 
     const updateTx = new anchor.web3.Transaction().add(updateBetIx);
-    // updateTx.feePayer = user.publicKey;
-    // updateTx.recentBlockhash = (await teeConnection.getLatestBlockhash()).blockhash;
+    updateTx.feePayer = user.publicKey;
+    updateTx.recentBlockhash = (await teeConnection.getLatestBlockhash()).blockhash;
 
     const updateSig = await sendAndConfirmTransaction(
-      provider.connection,
+      teeConnection,
       updateTx,
       [user],
-      // {
-      //   skipPreflight: true,
-      // },
+      {
+        skipPreflight: true,
+      },
     );
 
     console.log(`      ✅ Bet Updated with Stake Increase. TEE Sig: ${updateSig}`);
