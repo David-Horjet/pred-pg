@@ -478,16 +478,7 @@ describe("Production Flow", () => {
       },
     );
 
-    // First, send tokens to pool vault on L1 to simulate user sending more stake
-    console.log(`      🔄 User sending additional ${additionalStake.toNumber() / 1e6} USDC to pool vault...`);
-    
-    const transferIx = anchor.web3.SystemProgram.transfer({
-      fromPubkey: user.publicKey,
-      toPubkey: vaultPda,
-      lamports: 0, // This is just for demonstration
-    });
-
-    // Actually transfer tokens on L1
+    // Transfer additional tokens to vault on L1
     const transferTokensIx = createTransferInstruction(
       userAtas[0],
       vaultPda,
