@@ -122,6 +122,12 @@ pub mod swiv_privacy {
         pool::update_bet(ctx, new_prediction, additional_stake)
     }
 
+    /// L1 instruction: transfers tokens from user to pool vault and updates pool volume.
+    /// Call this BEFORE `update_bet` on TEE when increasing stake.
+    pub fn add_stake(ctx: Context<AddStake>, amount: u64) -> Result<()> {
+        pool::add_stake(ctx, amount)
+    }
+
     pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
         pool::emergency_refund(ctx)
     }

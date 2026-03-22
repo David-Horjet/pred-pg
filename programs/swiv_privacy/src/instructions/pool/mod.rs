@@ -4,6 +4,7 @@ pub mod resolve_pool;
 pub mod finalize_weights;
 pub mod claim_reward;
 pub mod update_bet;
+pub mod add_stake;
 pub mod init_bet;
 pub mod emergency_refund;
 
@@ -13,5 +14,6 @@ pub use resolve_pool::*;
 pub use finalize_weights::*;
 pub use claim_reward::*;
 pub use update_bet::*;
+pub use add_stake::*;
 pub use init_bet::*;
 pub use emergency_refund::*;

@@ -420,9 +420,6 @@ describe("Production Flow", () => {
             user: user.publicKey,
             pool: poolPda,
             bet: betPda,
-            poolVault: vaultPda,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            userTokenAccount: userAtas[0],
           })
           .instruction();
 
@@ -453,11 +450,11 @@ describe("Production Flow", () => {
     const betPda = betPdas[0];
     const additionalStake = new anchor.BN(50 * 1e6); // Add 50 USDC
 
-    // Get pool state before
+    // Get pool state before (L1)
     let poolBefore = await program.account.pool.fetch(poolPda);
     const volumeBefore = poolBefore.totalVolume;
 
-    // Get bet state before
+    // Get bet state before (L1 — bet is still delegated but L1 reflects original stake)
     let betBefore = await program.account.bet.fetch(betPda);
     const stakeBefore = betBefore.stake;
 
@@ -465,7 +462,31 @@ describe("Production Flow", () => {
     console.log(`         Bet Stake: ${stakeBefore.toString()}`);
     console.log(`         Pool Volume: ${volumeBefore.toString()}`);
 
-    // Get TEE connection with auth
+    // ── Step 1: Transfer tokens on L1 via add_stake ──────────────────────────
+    console.log(`      💸 Calling addStake on L1 to transfer tokens and update pool volume...`);
+
+    const [poolVaultBump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("pool_vault"), poolPda.toBuffer()],
+      program.programId,
+    );
+
+    await program.methods
+      .addStake(additionalStake)
+      .accountsPartial({
+        user: user.publicKey,
+        pool: poolPda,
+        poolVault: vaultPda,
+        userTokenAccount: userAtas[0],
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([user])
+      .rpc();
+
+    console.log(`      ✅ addStake executed on L1.`);
+
+    // ── Step 2: Update prediction + record stake increase on TEE ─────────────
+    console.log(`      🎯 Calling updateBet on TEE to record stake increase and update prediction...`);
+
     const authToken = await getAuthTokenWithRetry(
       ephemeralRpcEndpoint,
       user.publicKey,
@@ -480,18 +501,15 @@ describe("Production Flow", () => {
       },
     );
 
-    console.log(`      🎯 Updating bet prediction and increasing stake on TEE...`);
+    // Use updatedPredictions[0] (78) so test 7 sees the correct final prediction
+    const newPredictionForUpdate = updatedPredictions[0];
 
-    const newPredictionForUpdate = new anchor.BN(77);
     const updateBetIx = await program.methods
       .updateBet(newPredictionForUpdate, additionalStake)
       .accountsPartial({
         user: user.publicKey,
         pool: poolPda,
         bet: betPda,
-        poolVault: vaultPda,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        userTokenAccount: userAtas[0],
       })
       .instruction();
 
@@ -508,20 +526,27 @@ describe("Production Flow", () => {
       },
     );
 
-    console.log(`      ✅ Bet Updated with Stake Increase. TEE Sig: ${updateSig}`);
+    console.log(`      ✅ Bet Updated with Stake Increase on TEE. TEE Sig: ${updateSig}`);
     await sleep(1000);
 
-    // Verify the stake was increased and pool volume updated
-    let betAfter = await program.account.bet.fetch(betPda);
+    // ── Verify results ────────────────────────────────────────────────────────
+    // Fetch bet state from TEE (canonical while delegated)
+    const teeProvider = new anchor.AnchorProvider(teeConnection, new anchor.Wallet(user), {
+      commitment: "confirmed",
+    });
+    const teeProgram = new anchor.Program<SwivPrivacy>(program.idl, teeProvider);
+    let betAfter = await teeProgram.account.bet.fetch(betPda);
+
+    // Fetch pool state from L1 (not delegated — addStake updated it directly)
     let poolAfter = await program.account.pool.fetch(poolPda);
 
     const stakeAfter = betAfter.stake;
     const volumeAfter = poolAfter.totalVolume;
 
     console.log(`      📊 After Increase:`);
-    console.log(`         Bet Stake: ${stakeAfter.toString()}`);
-    console.log(`         Pool Volume: ${volumeAfter.toString()}`);
-    console.log(`         Prediction Updated: ${betAfter.prediction.toString()}`);
+    console.log(`         Bet Stake (TEE): ${stakeAfter.toString()}`);
+    console.log(`         Pool Volume (L1): ${volumeAfter.toString()}`);
+    console.log(`         Prediction (TEE): ${betAfter.prediction.toString()}`);
 
     // Assertions
     if (!stakeAfter.eq(stakeBefore.add(additionalStake))) {
