@@ -70,8 +70,14 @@ pub fn delegate_pool(ctx: Context<DelegatePool>, pool_id: u64) -> Result<()> {
 
 #[derive(Accounts)]
 pub struct DelegateBetPermission<'info> {
+    /// The user who owns the bet — must sign to authorize delegation.
     #[account(mut)]
     pub user: Signer<'info>,
+
+    /// Pays for any accounts the delegation program creates (buffer, record, metadata).
+    /// Separated from user so users need zero SOL under the gas-sponsorship model.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     /// CHECK: Manually validated against the bet's pool_identifier.
     pub pool: AccountInfo<'info>,
@@ -131,8 +137,8 @@ pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, _request_id:
     let signer_seeds = &[&seeds_for_signing[..]];
 
     DelegatePermissionCpiBuilder::new(&ctx.accounts.permission_program)
-        .payer(&ctx.accounts.user)
-        .authority(&ctx.accounts.user, false) 
+        .payer(&ctx.accounts.payer)
+        .authority(&ctx.accounts.user, false)
         .permissioned_account(&ctx.accounts.user_bet, true) // user_bet signs
         .permission(&ctx.accounts.permission)
         .system_program(&ctx.accounts.system_program)
@@ -150,8 +156,14 @@ pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, _request_id:
 #[delegate]
 #[derive(Accounts)]
 pub struct DelegateBet<'info> {
+    /// The user who owns the bet — must sign to authorize delegation.
     #[account(mut)]
     pub user: Signer<'info>,
+
+    /// Pays for any accounts the delegation SDK creates internally.
+    /// Separated from user so users need zero SOL under the gas-sponsorship model.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     /// CHECK: Manually validated against the bet's pool_identifier.
     pub pool: AccountInfo<'info>,
@@ -190,9 +202,9 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
     };
 
     ctx.accounts.delegate_user_bet(
-        &ctx.accounts.user, 
-        seeds_for_sdk, 
-        config,             
+        &ctx.accounts.payer,
+        seeds_for_sdk,
+        config,
     )?;
 
     emit!(BetDelegated {

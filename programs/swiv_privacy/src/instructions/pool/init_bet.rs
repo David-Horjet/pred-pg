@@ -7,8 +7,18 @@ use crate::errors::CustomError;
 #[derive(Accounts)]
 #[instruction(amount: u64, request_id: String)]
 pub struct InitBet<'info> {
+    /// The user who owns the bet and authorizes the USDC transfer.
+    /// Does NOT pay for account creation — sponsor covers rent.
     #[account(mut)]
     pub user: Signer<'info>,
+
+    /// The protocol authority (sponsor) that pays for the bet account rent.
+    /// Constrained to protocol.admin so only the authorized sponsor can be used.
+    #[account(
+        mut,
+        constraint = sponsor.key() == protocol.admin @ CustomError::Unauthorized
+    )]
+    pub sponsor: Signer<'info>,
 
     #[account(
         seeds = [SEED_PROTOCOL],
@@ -37,7 +47,7 @@ pub struct InitBet<'info> {
 
     #[account(
         init,
-        payer = user,
+        payer = sponsor,
         space = Bet::SPACE,
         seeds = [SEED_BET, pool.key().as_ref(), user.key().as_ref()],
         bump
