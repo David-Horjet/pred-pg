@@ -131,41 +131,55 @@ describe("Production Flow", () => {
       [SEED_PROTOCOL],
       program.programId,
     );
-    usdcMint = await createMint(
-      provider.connection,
-      admin,
-      admin.publicKey,
-      null,
-      6,
+    usdcMint = await withRetry(
+      () => createMint(provider.connection, admin, admin.publicKey, null, 6),
+      "Create Mint",
+      3,
+      3000,
     );
 
     for (const user of users) {
       const bal = await provider.connection.getBalance(user.publicKey);
       if (bal < 0.1 * LAMPORTS_PER_SOL) {
-        await provider.sendAndConfirm(
-          new anchor.web3.Transaction().add(
-            SystemProgram.transfer({
-              fromPubkey: admin.publicKey,
-              toPubkey: user.publicKey,
-              lamports: 0.1 * LAMPORTS_PER_SOL,
-            }),
+        await withRetry(
+          () => provider.sendAndConfirm(
+            new anchor.web3.Transaction().add(
+              SystemProgram.transfer({
+                fromPubkey: admin.publicKey,
+                toPubkey: user.publicKey,
+                lamports: 0.1 * LAMPORTS_PER_SOL,
+              }),
+            ),
           ),
+          "Fund User",
+          3,
+          3000,
         );
       }
-      const ata = await getOrCreateAssociatedTokenAccount(
-        provider.connection,
-        admin,
-        usdcMint,
-        user.publicKey,
+      const ata = await withRetry(
+        () => getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          admin,
+          usdcMint,
+          user.publicKey,
+        ),
+        "Create ATA",
+        3,
+        3000,
       );
       userAtas.push(ata.address);
-      await mintTo(
-        provider.connection,
-        admin,
-        usdcMint,
-        ata.address,
-        admin,
-        1000 * 1e6,
+      await withRetry(
+        () => mintTo(
+          provider.connection,
+          admin,
+          usdcMint,
+          ata.address,
+          admin,
+          1000 * 1e6,
+        ),
+        "Mint Tokens",
+        3,
+        3000,
       );
     }
 
@@ -187,7 +201,7 @@ describe("Production Flow", () => {
   it("2. Create Pool (L1)", async () => {
     const now = Math.floor(Date.now() / 1000);
     const START_TIME = new anchor.BN(now);
-    END_TIME = START_TIME.add(new anchor.BN(40));
+    END_TIME = START_TIME.add(new anchor.BN(50));
 
     [poolPda] = PublicKey.findProgramAddressSync(
       [
@@ -265,6 +279,7 @@ describe("Production Flow", () => {
           .initBet(betAmount, requestId)
           .accountsPartial({
             user: user.publicKey,
+            sponsor: admin.publicKey,
             protocol: protocolPda,
             pool: poolPda,
             poolVault: vaultPda,
@@ -277,7 +292,7 @@ describe("Production Flow", () => {
         await program.methods
           .createBetPermission(requestId)
           .accountsPartial({
-            payer: user.publicKey,
+            payer: admin.publicKey,
             user: user.publicKey,
             userBet: betPda,
             pool: poolPda,
@@ -289,6 +304,7 @@ describe("Production Flow", () => {
         await program.methods
           .delegateBetPermission(requestId)
           .accountsPartial({
+            payer: admin.publicKey,
             user: user.publicKey,
             pool: poolPda,
             userBet: betPda,
@@ -312,6 +328,7 @@ describe("Production Flow", () => {
           .delegateBet(requestId)
           .accountsPartial({
             user: user.publicKey,
+            payer: admin.publicKey,
             pool: poolPda,
             userBet: betPda,
             validator: TEE_VALIDATOR,
@@ -319,10 +336,12 @@ describe("Production Flow", () => {
           .instruction(),
       );
 
+      tx.feePayer = admin.publicKey;
+
       const sig = await anchor.web3.sendAndConfirmTransaction(
         provider.connection,
         tx,
-        [user],
+        [admin, user],
       );
       console.log(`        ✅ L1 Transaction Confirmed: ${sig}`);
 
@@ -343,6 +362,7 @@ describe("Production Flow", () => {
         .initBet(duplicateAmount, duplicateRequestId)
         .accountsPartial({
           user: user.publicKey,
+          sponsor: admin.publicKey,
           protocol: protocolPda,
           pool: poolPda,
           poolVault: vaultPda,
@@ -351,7 +371,7 @@ describe("Production Flow", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .signers([user])
+        .signers([admin, user]) // Add admin as a signer
         .rpc();
     } catch (_e) {
       failed = true;
