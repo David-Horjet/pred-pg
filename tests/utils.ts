@@ -15,6 +15,8 @@ export {
   getAuthToken, 
   PERMISSION_PROGRAM_ID, 
   DELEGATION_PROGRAM_ID, 
+  MAGIC_PROGRAM_ID,
+  MAGIC_CONTEXT_ID,
   waitUntilPermissionActive,
   delegationRecordPdaFromDelegatedAccount, 
   delegationMetadataPdaFromDelegatedAccount, 

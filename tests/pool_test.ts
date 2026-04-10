@@ -31,6 +31,8 @@ import {
   delegationMetadataPdaFromDelegatedAccount,
   delegateBufferPdaFromDelegatedAccountAndOwnerProgram,
   waitUntilPermissionActive,
+  MAGIC_CONTEXT_ID,
+  MAGIC_PROGRAM_ID,
 } from "./utils";
 import * as nacl from "tweetnacl";
 
@@ -116,7 +118,8 @@ describe("Production Flow", () => {
       } catch (e) {
         if (i === retries - 1) throw e;
         console.log(
-          `      ⚠️  ${actionName} failed (Attempt ${i + 1
+          `      ⚠️  ${actionName} failed (Attempt ${
+            i + 1
           }/${retries}). Retrying in ${delayMs / 1000}s...`,
         );
         console.log(`      Error: ${e.message}`);
@@ -178,7 +181,7 @@ describe("Production Flow", () => {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-    } catch (e) { }
+    } catch (e) {}
 
     const protocol = await program.account.protocol.fetch(protocolPda);
     poolId = protocol.totalPools.toNumber();
@@ -247,15 +250,21 @@ describe("Production Flow", () => {
       );
 
       const [betPda] = PublicKey.findProgramAddressSync(
-        [
-          SEED_BET,
-          poolPda.toBuffer(),
-          user.publicKey.toBuffer(),
-        ],
+        [SEED_BET, poolPda.toBuffer(), user.publicKey.toBuffer()],
         program.programId,
       );
       betPdas.push(betPda);
       const permissionPda = permissionPdaFromAccount(betPda);
+
+      const bufferUserBet =
+        delegateBufferPdaFromDelegatedAccountAndOwnerProgram(
+          betPda,
+          program.programId,
+        );
+      const delegationRecordUserBet =
+        delegationRecordPdaFromDelegatedAccount(betPda);
+      const delegationMetadataUserBet =
+        delegationMetadataPdaFromDelegatedAccount(betPda);
 
       console.log(`        👉 Bet PDA: ${betPda.toBase58()}`);
       console.log(`        👉 Permission PDA: ${permissionPda.toBase58()}`);
@@ -308,21 +317,31 @@ describe("Production Flow", () => {
             systemProgram: SystemProgram.programId,
           })
           .instruction(),
+
         await program.methods
           .delegateBet(requestId)
           .accountsPartial({
             user: user.publicKey,
+            payer: admin.publicKey,
             pool: poolPda,
+            bufferUserBet: bufferUserBet,
+            delegationRecordUserBet: delegationRecordUserBet,
+            delegationMetadataUserBet: delegationMetadataUserBet,
             userBet: betPda,
             validator: TEE_VALIDATOR,
+            ownerProgram: program.programId,
+            delegationProgram: DELEGATION_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
           })
           .instruction(),
       );
 
+      tx.feePayer = admin.publicKey;
+
       const sig = await anchor.web3.sendAndConfirmTransaction(
         provider.connection,
         tx,
-        [user],
+        [admin, user],
       );
       console.log(`        ✅ L1 Transaction Confirmed: ${sig}`);
 
@@ -351,17 +370,21 @@ describe("Production Flow", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .signers([user])
+        .signers([admin, user]) // Add admin as a signer
         .rpc();
     } catch (_e) {
       failed = true;
     }
 
     if (!failed) {
-      throw new Error("Expected second initBet call to fail for same user/pool bet PDA");
+      throw new Error(
+        "Expected second initBet call to fail for same user/pool bet PDA",
+      );
     }
 
-    console.log("    ✅ Duplicate initBet rejected for canonical user/pool bet");
+    console.log(
+      "    ✅ Duplicate initBet rejected for canonical user/pool bet",
+    );
   });
 
   it("3.2. Secure Bet Execution (TEE: Place Bet)", async () => {
@@ -412,7 +435,9 @@ describe("Production Flow", () => {
 
       if (i === 0) {
         console.log(
-          `      🔁 Updating User ${i + 1} bet via updateBet (Prediction: ${updatedPredictions[
+          `      🔁 Updating User ${
+            i + 1
+          } bet via updateBet (Prediction: ${updatedPredictions[
             i
           ].toString()})...`,
         );
@@ -428,7 +453,9 @@ describe("Production Flow", () => {
 
         const updateTx = new anchor.web3.Transaction().add(updateBetIx);
         updateTx.feePayer = user.publicKey;
-        updateTx.recentBlockhash = (await teeConnection.getLatestBlockhash()).blockhash;
+        updateTx.recentBlockhash = (
+          await teeConnection.getLatestBlockhash()
+        ).blockhash;
 
         const updateSig = await sendAndConfirmTransaction(
           teeConnection,
@@ -466,7 +493,9 @@ describe("Production Flow", () => {
     console.log(`         Pool Volume: ${volumeBefore.toString()}`);
 
     // ── Step 1: Transfer tokens on L1 via add_stake ──────────────────────────
-    console.log(`      💸 Calling addStake on L1 to transfer tokens and update pool volume...`);
+    console.log(
+      `      💸 Calling addStake on L1 to transfer tokens and update pool volume...`,
+    );
 
     const [poolVaultBump] = PublicKey.findProgramAddressSync(
       [Buffer.from("pool_vault"), poolPda.toBuffer()],
@@ -488,7 +517,9 @@ describe("Production Flow", () => {
     console.log(`      ✅ addStake executed on L1.`);
 
     // ── Step 2: Update prediction + record stake increase on TEE ─────────────
-    console.log(`      🎯 Calling updateBet on TEE to record stake increase and update prediction...`);
+    console.log(
+      `      🎯 Calling updateBet on TEE to record stake increase and update prediction...`,
+    );
 
     const authToken = await getAuthTokenWithRetry(
       ephemeralRpcEndpoint,
@@ -518,7 +549,9 @@ describe("Production Flow", () => {
 
     const updateTx = new anchor.web3.Transaction().add(updateBetIx);
     updateTx.feePayer = user.publicKey;
-    updateTx.recentBlockhash = (await teeConnection.getLatestBlockhash()).blockhash;
+    updateTx.recentBlockhash = (
+      await teeConnection.getLatestBlockhash()
+    ).blockhash;
 
     const updateSig = await sendAndConfirmTransaction(
       teeConnection,
@@ -529,15 +562,24 @@ describe("Production Flow", () => {
       },
     );
 
-    console.log(`      ✅ Bet Updated with Stake Increase on TEE. TEE Sig: ${updateSig}`);
+    console.log(
+      `      ✅ Bet Updated with Stake Increase on TEE. TEE Sig: ${updateSig}`,
+    );
     await sleep(1000);
 
     // ── Verify results ────────────────────────────────────────────────────────
     // Fetch bet state from TEE (canonical while delegated)
-    const teeProvider = new anchor.AnchorProvider(teeConnection, new anchor.Wallet(user), {
-      commitment: "confirmed",
-    });
-    const teeProgram = new anchor.Program<SwivPrivacy>(program.idl, teeProvider);
+    const teeProvider = new anchor.AnchorProvider(
+      teeConnection,
+      new anchor.Wallet(user),
+      {
+        commitment: "confirmed",
+      },
+    );
+    const teeProgram = new anchor.Program<SwivPrivacy>(
+      program.idl,
+      teeProvider,
+    );
     let betAfter = await teeProgram.account.bet.fetch(betPda);
 
     // Fetch pool state from L1 (not delegated — addStake updated it directly)
@@ -554,13 +596,17 @@ describe("Production Flow", () => {
     // Assertions
     if (!stakeAfter.eq(stakeBefore.add(additionalStake))) {
       throw new Error(
-        `❌ Stake not increased correctly. Expected ${stakeBefore.add(additionalStake).toString()}, got ${stakeAfter.toString()}`,
+        `❌ Stake not increased correctly. Expected ${stakeBefore
+          .add(additionalStake)
+          .toString()}, got ${stakeAfter.toString()}`,
       );
     }
 
     if (!volumeAfter.eq(volumeBefore.add(additionalStake))) {
       throw new Error(
-        `❌ Pool volume not updated correctly. Expected ${volumeBefore.add(additionalStake).toString()}, got ${volumeAfter.toString()}`,
+        `❌ Pool volume not updated correctly. Expected ${volumeBefore
+          .add(additionalStake)
+          .toString()}, got ${volumeAfter.toString()}`,
       );
     }
 
@@ -647,6 +693,15 @@ describe("Production Flow", () => {
     console.log(`    ⏳ Waiting ${timeToWait / 1000}s for pool expiry...`);
     await sleep(timeToWait);
 
+    const bufferPool = delegateBufferPdaFromDelegatedAccountAndOwnerProgram(
+      poolPda,
+      program.programId,
+    );
+    const delegationRecordPool =
+      delegationRecordPdaFromDelegatedAccount(poolPda);
+    const delegationMetadataPool =
+      delegationMetadataPdaFromDelegatedAccount(poolPda);
+
     // --- DELEGATE POOL ---
     console.log("    🔗 Delegating Pool PDA to TEE...");
 
@@ -657,8 +712,14 @@ describe("Production Flow", () => {
         .accountsPartial({
           admin: admin.publicKey,
           protocol: protocolPda,
+          bufferPool: bufferPool,
+          delegationRecordPool: delegationRecordPool,
+          delegationMetadataPool: delegationMetadataPool,
           pool: poolPda,
           validator: TEE_VALIDATOR,
+          ownerProgram: program.programId,
+          delegationProgram: DELEGATION_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
       console.log(`    ✅ Pool Delegated (L1 Sig: ${tx})`);
@@ -742,7 +803,12 @@ describe("Production Flow", () => {
     await withRetry(async () => {
       const undelegateBetsTx = await erProgram.methods
         .batchUndelegateBets()
-        .accounts({ payer: admin.publicKey, pool: poolPda })
+        .accounts({
+          payer: admin.publicKey,
+          pool: poolPda,
+          magicContext: MAGIC_CONTEXT_ID,
+          magicProgram: MAGIC_PROGRAM_ID,
+        })
         .remainingAccounts(batchAccounts)
         .rpc();
       console.log(`    ✅ User Bets Flushed to L1 (Sig: ${undelegateBetsTx})`);
@@ -762,6 +828,8 @@ describe("Production Flow", () => {
           admin: admin.publicKey,
           protocol: protocolPda,
           pool: poolPda,
+          magicContext: MAGIC_CONTEXT_ID,
+          magicProgram: MAGIC_PROGRAM_ID,
         })
         .rpc();
       console.log(`    ✅ Pool Settled back to L1 (Sig: ${finalUndelegateTx})`);
@@ -798,14 +866,14 @@ describe("Production Flow", () => {
 
       weightFinalized: poolAccount.weightFinalized,
       totalParticipants: poolAccount.totalParticipants.toNumber(),
-    }
+    };
     console.log("      🔍 Initial Pool isResolved:", formattedPoolAccount);
     let retries = 10;
     while (!poolAccount.isResolved && retries > 0) {
       await sleep(1500);
       try {
         poolAccount = await program.account.pool.fetch(poolPda);
-      } catch (e) { }
+      } catch (e) {}
       retries--;
     }
     if (!poolAccount.isResolved) {
@@ -822,7 +890,7 @@ describe("Production Flow", () => {
         provider.connection,
         admin,
         usdcMint,
-        admin.publicKey
+        admin.publicKey,
       );
 
       const finalizeTx = await program.methods
@@ -852,11 +920,13 @@ describe("Production Flow", () => {
       const userAta = userAtas[i];
 
       console.log(
-        `      👤 User ${i + 1} (${user.publicKey.toBase58().slice(0, 8)}...)`
+        `      👤 User ${i + 1} (${user.publicKey.toBase58().slice(0, 8)}...)`,
       );
 
       // Get Balance Before
-      const balBefore = await provider.connection.getTokenAccountBalance(userAta);
+      const balBefore = await provider.connection.getTokenAccountBalance(
+        userAta,
+      );
       const startAmount = balBefore.value.uiAmount || 0;
 
       try {
@@ -874,7 +944,9 @@ describe("Production Flow", () => {
           .rpc();
 
         // Get Balance After
-        const balAfter = await provider.connection.getTokenAccountBalance(userAta);
+        const balAfter = await provider.connection.getTokenAccountBalance(
+          userAta,
+        );
         const endAmount = balAfter.value.uiAmount || 0;
         const profit = endAmount - startAmount;
 
@@ -884,12 +956,13 @@ describe("Production Flow", () => {
         } else {
           console.log(`        😐 Claimed but received 0 USDC (Break even?)`);
         }
-
       } catch (e) {
         // If claim fails, it usually means they didn't win or already claimed
         // We assume they are a "Loser" for this test context if it fails
         console.log(`        📉 DID NOT WIN (or claim failed).`);
-        console.log(`           (Balance remained: ${startAmount.toFixed(4)} USDC)`);
+        console.log(
+          `           (Balance remained: ${startAmount.toFixed(4)} USDC)`,
+        );
         // Optional: Log specific error if needed
         // console.log(`           Reason: ${e.message}`);
       }
@@ -901,8 +974,12 @@ describe("Production Flow", () => {
     const user1BetData = await program.account.bet.fetch(betPdas[0]);
     const user2BetData = await program.account.bet.fetch(betPdas[1]);
 
-    console.log(`    📖 L1 User1 Prediction: ${user1BetData.prediction.toString()}`);
-    console.log(`    📖 L1 User2 Prediction: ${user2BetData.prediction.toString()}`);
+    console.log(
+      `    📖 L1 User1 Prediction: ${user1BetData.prediction.toString()}`,
+    );
+    console.log(
+      `    📖 L1 User2 Prediction: ${user2BetData.prediction.toString()}`,
+    );
 
     if (!user1BetData.prediction.eq(updatedPredictions[0])) {
       throw new Error(
