@@ -12,6 +12,8 @@ pub enum CustomError {
     InsufficientLiquidity,
     #[msg("Bet is already claimed.")]
     AlreadyClaimed,
+    #[msg("Pool is already resolved.")]
+    AlreadyResolved,
     #[msg("Weights have already been finalized.")]
     WeightsAlreadyFinalized,
     #[msg("Bet is already initialized.")]

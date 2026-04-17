@@ -28,6 +28,7 @@ pub struct ClaimReward<'info> {
     #[account(
         mut,
         constraint = bet.user_pubkey == user.key() @ CustomError::Unauthorized,
+        constraint = bet.status != BetStatus::Claimed @ CustomError::AlreadyClaimed,
     )]
     pub bet: Box<Account<'info, Bet>>,
 

@@ -27,7 +27,7 @@ pub struct ResolvePool<'info> {
 pub fn resolve_pool(ctx: Context<ResolvePool>, final_outcome: u64) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     
-    require!(!pool.is_resolved, CustomError::AlreadyClaimed);
+    require!(!pool.is_resolved, CustomError::AlreadyResolved);
     
     let clock = Clock::get()?;
     require!(clock.unix_timestamp >= pool.end_time, CustomError::DurationTooShort);

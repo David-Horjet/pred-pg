@@ -31,7 +31,7 @@ pub fn batch_calculate_weights<'info>(
     let accounts_iter = &mut ctx.remaining_accounts.iter();
 
     require!(pool.is_resolved, CustomError::SettlementTooEarly);
-    require!(!pool.weight_finalized, CustomError::AlreadyClaimed);
+    require!(!pool.weight_finalized, CustomError::WeightsAlreadyFinalized);
 
     let result = pool.resolution_result;
     let start_time = pool.start_time;
