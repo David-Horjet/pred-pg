@@ -116,7 +116,7 @@ describe("Production Flow", () => {
     for (let i = 0; i < retries; i++) {
       try {
         return await fn();
-      } catch (e) {
+      } catch (e: any) {
         if (i === retries - 1) throw e;
         console.log(
           `      ⚠️  ${actionName} failed (Attempt ${
@@ -331,7 +331,7 @@ describe("Production Flow", () => {
         .signers([lateUser, admin])
         .rpc();
       throw new Error("Should have failed with MarketClosed");
-    } catch (e) {
+    } catch (e: any) {
       if (!e.message.includes("MarketClosed")) throw e;
       console.log("      ✅ MarketClosed correctly enforced after cutoff for fresh User 2");
     }
@@ -383,7 +383,7 @@ describe("Production Flow", () => {
       .rpc();
 
     const balanceAfter = (await provider.connection.getTokenAccountBalance(userAtas[0])).value.uiAmount;
-    const diff = balanceAfter - balanceBefore;
+    const diff = balanceAfter! - balanceBefore!;
     console.log(`      💰 User 1 Balance After Refund:  ${balanceAfter} USDC`);
     console.log(`      ✨ REFUND VERIFIED: User 1 received exactly ${diff} USDC back (Full Stake).`);
     
@@ -1071,7 +1071,7 @@ describe("Production Flow", () => {
         .signers([admin])
         .rpc();
       console.log(`      ✅ Weights Finalized (Sig: ${finalizeTx})`);
-    } catch (e) {
+    } catch (e: any) {
       console.log(`      ⚠️  Finalize Weights failed: ${e.message}`);
       // Proceeding anyway in case it was already finalized
     }

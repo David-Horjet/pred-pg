@@ -57,7 +57,6 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()> {
                 .unwrap() as u64;
         }
     } else {
-        // total_weight is 0, user gets full refund
         payout_amount = bet.stake;
     }
 
