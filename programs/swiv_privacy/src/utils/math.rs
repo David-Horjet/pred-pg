@@ -6,6 +6,7 @@ pub const MATH_PRECISION: u128 = 1_000_000;
 pub fn calculate_accuracy_score(
     prediction: u64,
     result: u64,
+    max_accuracy_buffer: u64,
 ) -> Result<u64> {
     if result == 0 {
         return Ok(0);
@@ -16,6 +17,10 @@ pub fn calculate_accuracy_score(
     } else {
         result - prediction
     };
+
+    if max_accuracy_buffer > 0 && diff >= max_accuracy_buffer {
+        return Ok(0);
+    }
 
     let error_scaled = (diff as u128)
         .checked_mul(MATH_PRECISION)

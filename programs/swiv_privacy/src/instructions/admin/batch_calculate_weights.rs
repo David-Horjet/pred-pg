@@ -48,8 +48,9 @@ pub fn batch_calculate_weights<'info>(
         }
 
         let accuracy_score = calculate_accuracy_score(
-            bet.prediction, 
-            result, 
+            bet.prediction,
+            result,
+            pool.max_accuracy_buffer,
         )?;
         
         let time_bonus = calculate_time_bonus(
