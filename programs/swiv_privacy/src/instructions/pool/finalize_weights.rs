@@ -48,7 +48,7 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
     let mut distributable_amount = total_assets;
     let mut fee_amount: u64 = 0;
 
-    if config.protocol_fee_bps > 0 && pool.total_weight > 0 {
+    if config.protocol_fee_bps > 0 && pool.total_participants > 1 && pool.total_weight > 0 {
         fee_amount = (total_assets as u128)
             .checked_mul(config.protocol_fee_bps as u128)
             .unwrap()
