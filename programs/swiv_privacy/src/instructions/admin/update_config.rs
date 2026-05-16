@@ -6,8 +6,9 @@ use crate::events::ConfigUpdated;
 
 #[derive(Accounts)]
 #[instruction(
-    new_treasury: Option<Pubkey>, 
-    new_protocol_fee_bps: Option<u64> 
+    new_treasury: Option<Pubkey>,
+    new_protocol_fee_bps: Option<u64>,
+    new_batch_settle_wait_duration: Option<i64>,
 )]
 pub struct UpdateConfig<'info> {
     #[account(mut)]
@@ -28,6 +29,7 @@ pub fn update_config(
     ctx: Context<UpdateConfig>,
     new_treasury: Option<Pubkey>,
     new_protocol_fee_bps: Option<u64>,
+    new_batch_settle_wait_duration: Option<i64>,
 ) -> Result<()> {
     let protocol = &mut ctx.accounts.protocol;
 
@@ -39,9 +41,14 @@ pub fn update_config(
         protocol.protocol_fee_bps = fee;
     }
 
+    if let Some(duration) = new_batch_settle_wait_duration {
+        protocol.batch_settle_wait_duration = duration;
+    }
+
     emit!(ConfigUpdated {
         treasury: new_treasury,
         protocol_fee_bps: new_protocol_fee_bps,
+        batch_settle_wait_duration: new_batch_settle_wait_duration,
     });
 
     msg!("Protocol Config Updated");

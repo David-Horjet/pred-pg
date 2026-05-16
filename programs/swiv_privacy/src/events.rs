@@ -10,6 +10,7 @@ pub struct ProtocolInitialized {
 pub struct ConfigUpdated {
     pub treasury: Option<Pubkey>,
     pub protocol_fee_bps: Option<u64>,
+    pub batch_settle_wait_duration: Option<i64>,
 }
 
 #[event]

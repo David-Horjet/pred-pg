@@ -29,8 +29,9 @@ pub mod swiv_privacy {
         ctx: Context<UpdateConfig>,
         new_treasury: Option<Pubkey>,
         new_protocol_fee_bps: Option<u64>,
+        new_batch_settle_wait_duration: Option<i64>,
     ) -> Result<()> {
-        admin::update_config(ctx, new_treasury, new_protocol_fee_bps)
+        admin::update_config(ctx, new_treasury, new_protocol_fee_bps, new_batch_settle_wait_duration)
     }
 
     pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<()> {

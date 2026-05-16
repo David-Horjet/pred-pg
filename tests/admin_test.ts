@@ -31,7 +31,7 @@ describe("1. Setup & Admin", () => {
       console.log("    ✅ Protocol Initialized");
     } else {
       await program.methods
-        .updateConfig(null, new anchor.BN(300))
+        .updateConfig(null, new anchor.BN(300), null)
         .accountsPartial({
           admin: admin.publicKey,
           protocol: configPda,
