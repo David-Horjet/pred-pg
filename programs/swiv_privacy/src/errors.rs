@@ -37,5 +37,5 @@ pub enum CustomError {
     #[msg("You must wait for the pool to end before undelegating to preserve privacy.")]
     UndelegationTooEarly,
     #[msg("Market is closed for new predictions (cutoff reached).")]
-    MarketClosed,
-}
+    MarketClosed,    #[msg("Pool cannot be cancelled once resolution has started.")]
+    PoolNotCancellable,}

@@ -74,7 +74,6 @@ pub mod swiv_privacy {
     // --- POOL ---
     pub fn create_pool(
         ctx: Context<CreatePool>,
-        pool_id: u64,
         title: String,
         start_time: i64,
         end_time: i64,
@@ -83,7 +82,6 @@ pub mod swiv_privacy {
     ) -> Result<()> {
         pool::create_pool(
             ctx,
-            pool_id,
             title,
             start_time,
             end_time,
@@ -130,5 +128,9 @@ pub mod swiv_privacy {
 
     pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
         pool::emergency_refund(ctx)
+    }
+
+    pub fn cancel_pool(ctx: Context<CancelPool>) -> Result<()> {
+        pool::cancel_pool(ctx)
     }
 }

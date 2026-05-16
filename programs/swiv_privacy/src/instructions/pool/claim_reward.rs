@@ -1,6 +1,6 @@
 use crate::constants::{SEED_POOL, SEED_POOL_VAULT};
 use crate::errors::CustomError;
-use crate::state::{BetStatus, Pool, Bet};
+use crate::state::{BetStatus, Pool, PoolStatus, Bet};
 use crate::events::RewardClaimed;
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
@@ -43,11 +43,11 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()> {
     let bet = &mut ctx.accounts.bet;
     let mut payout_amount: u64 = 0;
 
-    require!(pool.weight_finalized, CustomError::SettlementTooEarly);
+    require!(pool.status == PoolStatus::Resolved, CustomError::SettlementTooEarly);
 
     if pool.total_weight > 0 {
         if bet.calculated_weight > 0 {
-            let total_distributable_pot = pool.total_volume as u128;
+            let total_distributable_pot = pool.distributable_amount as u128;
 
             payout_amount = bet
                 .calculated_weight
@@ -62,7 +62,7 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()> {
 
     if payout_amount > 0 {
         require!(
-            payout_amount <= pool.total_volume,
+            payout_amount <= pool.distributable_amount,
             CustomError::InsufficientLiquidity
         );
 

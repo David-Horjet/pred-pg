@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::state::{Pool, Protocol};
+use crate::state::{Pool, PoolStatus, Protocol};
 use crate::constants::{SEED_PROTOCOL, SEED_POOL};
 use crate::errors::CustomError;
 use crate::events::PoolResolved;
@@ -26,25 +26,29 @@ pub struct ResolvePool<'info> {
 
 pub fn resolve_pool(ctx: Context<ResolvePool>, final_outcome: u64) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
-    
-    require!(!pool.is_resolved, CustomError::AlreadyResolved);
-    
+
+    // Block re-resolution and cancellation; allow any earlier status.
+    require!(
+        pool.status != PoolStatus::Resolved
+            && pool.status != PoolStatus::Settled
+            && pool.status != PoolStatus::Cancelled,
+        CustomError::AlreadyResolved
+    );
+
     let clock = Clock::get()?;
     require!(clock.unix_timestamp >= pool.end_time, CustomError::DurationTooShort);
 
     pool.resolution_result = final_outcome;
-    pool.is_resolved = true;
-    
-    pool.resolution_ts = clock.unix_timestamp; 
-    pool.weight_finalized = false; 
-    
+    pool.resolution_ts = clock.unix_timestamp;
+    pool.status = PoolStatus::Resolving;
+
     emit!(PoolResolved {
         pool_name: pool.title.clone(),
         final_outcome,
         resolution_ts: pool.resolution_ts,
     });
 
-    msg!("Pool Resolved. Outcome: {}", final_outcome);
-    
+    msg!("Pool Resolving. Outcome: {}", final_outcome);
+
     Ok(())
 }

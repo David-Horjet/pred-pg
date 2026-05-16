@@ -1,7 +1,7 @@
 use crate::constants::{SEED_POOL, SEED_POOL_VAULT, SEED_PROTOCOL};
 use crate::errors::CustomError;
 use crate::events::WeightsFinalized;
-use crate::state::{Pool, Protocol};
+use crate::state::{Pool, PoolStatus, Protocol};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
@@ -41,8 +41,14 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     let config = &ctx.accounts.protocol;
 
-    require!(pool.is_resolved, CustomError::SettlementTooEarly);
-    require!(!pool.weight_finalized, CustomError::WeightsAlreadyFinalized);
+    require!(pool.status == PoolStatus::Resolving, CustomError::SettlementTooEarly);
+
+    // Enforce batch settle wait: admin cannot finalize before the mandatory delay expires.
+    let clock = Clock::get()?;
+    require!(
+        clock.unix_timestamp >= pool.resolution_ts + config.batch_settle_wait_duration,
+        CustomError::SettlementTooEarly
+    );
 
     let total_assets = ctx.accounts.pool_vault.amount;
     let mut distributable_amount = total_assets;
@@ -79,8 +85,8 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
         }
     }
 
-    pool.total_volume = distributable_amount;
-    pool.weight_finalized = true;
+    pool.distributable_amount = distributable_amount;
+    pool.status = PoolStatus::Resolved;
 
     emit!(WeightsFinalized {
         pool_name: pool.title.clone(),

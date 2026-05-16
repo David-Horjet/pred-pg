@@ -1,7 +1,7 @@
 use crate::constants::SEED_POOL;
 use crate::errors::CustomError;
 use crate::events::OutcomeCalculated;
-use crate::state::{BetStatus, Pool, Bet};
+use crate::state::{BetStatus, Pool, PoolStatus, Bet};
 use crate::utils::math::{
     calculate_accuracy_score, calculate_conviction_bonus, calculate_time_bonus, calculate_weight,
 };
@@ -30,8 +30,7 @@ pub fn batch_calculate_weights<'info>(
     let pool = &mut ctx.accounts.pool;
     let accounts_iter = &mut ctx.remaining_accounts.iter();
 
-    require!(pool.is_resolved, CustomError::SettlementTooEarly);
-    require!(!pool.weight_finalized, CustomError::WeightsAlreadyFinalized);
+    require!(pool.status == PoolStatus::Resolving, CustomError::SettlementTooEarly);
 
     let result = pool.resolution_result;
     let start_time = pool.start_time;
