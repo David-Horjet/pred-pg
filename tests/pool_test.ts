@@ -116,7 +116,7 @@ describe("Production Flow", () => {
     for (let i = 0; i < retries; i++) {
       try {
         return await fn();
-      } catch (e) {
+      } catch (e: any) {
         if (i === retries - 1) throw e;
         console.log(
           `      ⚠️  ${actionName} failed (Attempt ${
@@ -198,6 +198,16 @@ describe("Production Flow", () => {
         .rpc();
     } catch (e) {}
 
+    // Set batch_settle_wait_duration to 0 so tests don't need to wait 60s between resolve and finalize
+    await program.methods
+      .updateConfig(null, null, new anchor.BN(0))
+      .accountsPartial({
+        admin: admin.publicKey,
+        protocol: protocolPda,
+        systemProgram: SystemProgram.programId,
+      })
+      .rpc();
+
     const protocol = await program.account.protocol.fetch(protocolPda);
     poolId = protocol.totalPools.toNumber();
   });
@@ -229,7 +239,6 @@ describe("Production Flow", () => {
 
     await program.methods
       .createPool(
-        new anchor.BN(poolId),
         POOL_TITLE,
         START_TIME,
         END_TIME,
@@ -252,9 +261,11 @@ describe("Production Flow", () => {
   });
 
   it("2.b. Verify Market Cutoff Enforcement (L1)", async () => {
-    const tempPoolId = new anchor.BN(Math.floor(Math.random() * 1000000));
+    // Derive pool_id from current protocol.totalPools (same logic as contract)
+    const tempProtocol = await program.account.protocol.fetch(protocolPda);
+    const tempPoolIdBn = tempProtocol.totalPools;
     const [tempPoolPda] = PublicKey.findProgramAddressSync(
-      [SEED_POOL, admin.publicKey.toBuffer(), tempPoolId.toBuffer("le", 8)],
+      [SEED_POOL, admin.publicKey.toBuffer(), tempPoolIdBn.toBuffer("le", 8)],
       program.programId
     );
     const [tempVaultPda] = PublicKey.findProgramAddressSync(
@@ -268,7 +279,7 @@ describe("Production Flow", () => {
     const end = start.add(new anchor.BN(25));
     
     await program.methods
-      .createPool(tempPoolId, "Cutoff Check", start, end, toPriceBn(5), new anchor.BN(0))
+      .createPool("Cutoff Check", start, end, toPriceBn(5), new anchor.BN(0))
       .accountsPartial({
         protocol: protocolPda,
         pool: tempPoolPda,
@@ -331,7 +342,7 @@ describe("Production Flow", () => {
         .signers([lateUser, admin])
         .rpc();
       throw new Error("Should have failed with MarketClosed");
-    } catch (e) {
+    } catch (e: any) {
       if (!e.message.includes("MarketClosed")) throw e;
       console.log("      ✅ MarketClosed correctly enforced after cutoff for fresh User 2");
     }
@@ -364,7 +375,7 @@ describe("Production Flow", () => {
       .rpc();
 
     const poolAfterFinalize = await program.account.pool.fetch(tempPoolPda);
-    console.log(`      📊 Refund Pool Logic -> totalWeight: ${poolAfterFinalize.totalWeight.toString()}, totalVolume: ${poolAfterFinalize.totalVolume.toString()}`);
+    console.log(`      📊 Refund Pool Logic -> totalWeight: ${poolAfterFinalize.totalWeight.toString()}, totalStaked: ${poolAfterFinalize.totalStaked.toString()}`);
     
     const balanceBefore = (await provider.connection.getTokenAccountBalance(userAtas[0])).value.uiAmount;
     console.log(`      💰 User 1 Balance Before Refund: ${balanceBefore} USDC`);
@@ -383,7 +394,7 @@ describe("Production Flow", () => {
       .rpc();
 
     const balanceAfter = (await provider.connection.getTokenAccountBalance(userAtas[0])).value.uiAmount;
-    const diff = balanceAfter - balanceBefore;
+    const diff = balanceAfter! - balanceBefore!;
     console.log(`      💰 User 1 Balance After Refund:  ${balanceAfter} USDC`);
     console.log(`      ✨ REFUND VERIFIED: User 1 received exactly ${diff} USDC back (Full Stake).`);
     
@@ -640,7 +651,7 @@ describe("Production Flow", () => {
 
     // Get pool state before (L1)
     let poolBefore = await program.account.pool.fetch(poolPda);
-    const volumeBefore = poolBefore.totalVolume;
+    const volumeBefore = poolBefore.totalStaked;
 
     // Get bet state before (L1 — bet is still delegated but L1 reflects original stake)
     let betBefore = await program.account.bet.fetch(betPda);
@@ -648,7 +659,7 @@ describe("Production Flow", () => {
 
     console.log(`      📊 Before Increase:`);
     console.log(`         Bet Stake: ${stakeBefore.toString()}`);
-    console.log(`         Pool Volume: ${volumeBefore.toString()}`);
+    console.log(`         Pool Total Staked: ${volumeBefore.toString()}`);
 
     // ── Step 1: Transfer tokens on L1 via add_stake ──────────────────────────
     console.log(
@@ -744,11 +755,11 @@ describe("Production Flow", () => {
     let poolAfter = await program.account.pool.fetch(poolPda);
 
     const stakeAfter = betAfter.stake;
-    const volumeAfter = poolAfter.totalVolume;
+    const volumeAfter = poolAfter.totalStaked;
 
     console.log(`      📊 After Increase:`);
     console.log(`         Bet Stake (TEE): ${stakeAfter.toString()}`);
-    console.log(`         Pool Volume (L1): ${volumeAfter.toString()}`);
+    console.log(`         Pool Total Staked (L1): ${volumeAfter.toString()}`);
     console.log(`         Prediction (TEE): ${betAfter.prediction.toString()}`);
 
     // Assertions
@@ -1009,6 +1020,9 @@ describe("Production Flow", () => {
     // --- 1. WAIT FOR L1 SETTLEMENT (Wait for Step 5 to reflect) ---
     console.log("      ⏳ Waiting for L1 Pool to reflect TEE resolution...");
     let poolAccount = await program.account.pool.fetch(poolPda);
+
+    const poolStatusKey = (s: any) => Object.keys(s)[0];
+
     const formattedPoolAccount = {
       poolId: poolAccount.poolId.toNumber(),
       createdBy: poolAccount.createdBy.toBase58(),
@@ -1021,30 +1035,33 @@ describe("Production Flow", () => {
       maxAccuracyBuffer: poolAccount.maxAccuracyBuffer.toNumber(),
       convictionBonusBps: poolAccount.convictionBonusBps.toNumber(),
 
-      totalVolume: poolAccount.totalVolume.toString(),
+      totalStaked: poolAccount.totalStaked.toString(),
+      distributableAmount: poolAccount.distributableAmount.toString(),
       resolutionResult: poolAccount.resolutionResult?.toString() ?? null,
 
-      isResolved: poolAccount.isResolved,
+      status: poolStatusKey(poolAccount.status),
       resolutionTs: poolAccount.resolutionTs?.toNumber() ?? null,
 
       totalWeight: poolAccount.totalWeight?.toString() ?? "0",
-
-      weightFinalized: poolAccount.weightFinalized,
       totalParticipants: poolAccount.totalParticipants.toNumber(),
     };
-    console.log("      🔍 Initial Pool isResolved:", formattedPoolAccount);
+    console.log("      🔍 Initial Pool status:", formattedPoolAccount);
+
+    const isResolvingOrBeyond = (s: any) =>
+      "resolving" in s || "resolved" in s || "settled" in s;
+
     let retries = 10;
-    while (!poolAccount.isResolved && retries > 0) {
+    while (!isResolvingOrBeyond(poolAccount.status) && retries > 0) {
       await sleep(1500);
       try {
         poolAccount = await program.account.pool.fetch(poolPda);
       } catch (e) {}
       retries--;
     }
-    if (!poolAccount.isResolved) {
-      throw new Error("❌ Pool never resolved on L1. Did Step 5 fail?");
+    if (!isResolvingOrBeyond(poolAccount.status)) {
+      throw new Error("❌ Pool never reached resolving state on L1. Did Step 5 fail?");
     }
-    console.log("      ✅ Pool is Resolved on L1. Proceeding to Finalize.");
+    console.log(`      ✅ Pool status is '${poolStatusKey(poolAccount.status)}' on L1. Proceeding to Finalize.`);
 
     // --- 2. FINALIZE WEIGHTS (The Missing Step) ---
     // This calculates fees and unlocks the vault for claimers
@@ -1071,7 +1088,7 @@ describe("Production Flow", () => {
         .signers([admin])
         .rpc();
       console.log(`      ✅ Weights Finalized (Sig: ${finalizeTx})`);
-    } catch (e) {
+    } catch (e: any) {
       console.log(`      ⚠️  Finalize Weights failed: ${e.message}`);
       // Proceeding anyway in case it was already finalized
     }

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::state::{Protocol, Pool, Bet, BetStatus};
-use crate::constants::{SEED_BET, SEED_POOL, SEED_POOL_VAULT, SEED_PROTOCOL}; 
+use crate::constants::{SEED_BET, SEED_POOL, SEED_POOL_VAULT, SEED_PROTOCOL};
 use crate::errors::CustomError;
 
 #[derive(Accounts)]
@@ -83,7 +83,7 @@ pub fn init_bet(
         amount,
     )?;
 
-    pool.total_volume = pool.total_volume.checked_add(amount).unwrap();
+    pool.total_staked = pool.total_staked.checked_add(amount).unwrap();
     pool.total_participants = pool.total_participants.checked_add(1).unwrap();
 
     let bet = &mut ctx.accounts.bet;

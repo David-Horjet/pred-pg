@@ -7,6 +7,7 @@ pub mod update_bet;
 pub mod add_stake;
 pub mod init_bet;
 pub mod emergency_refund;
+pub mod cancel_pool;
 
 pub use create_pool::*;
 pub use place_bet::*;
@@ -17,3 +18,4 @@ pub use update_bet::*;
 pub use add_stake::*;
 pub use init_bet::*;
 pub use emergency_refund::*;
+pub use cancel_pool::*;

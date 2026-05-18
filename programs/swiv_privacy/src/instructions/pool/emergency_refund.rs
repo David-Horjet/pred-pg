@@ -1,11 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::state::{Bet, Pool, BetStatus};
+use crate::state::{Bet, Pool, PoolStatus, BetStatus};
 use crate::constants::{SEED_POOL, SEED_POOL_VAULT};
 use crate::errors::CustomError;
 use crate::events::BetRefunded;
 
-const REFUND_TIMEOUT_SECONDS: i64 = 60; 
+const REFUND_TIMEOUT_SECONDS: i64 = 60;
 
 #[derive(Accounts)]
 pub struct EmergencyRefund<'info> {
@@ -48,11 +48,12 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     let clock = Clock::get()?;
 
-    require!(
-        clock.unix_timestamp > bet.end_timestamp + REFUND_TIMEOUT_SECONDS,
-        CustomError::TimeoutNotMet
-    );
-
+    if pool.status != PoolStatus::Cancelled {
+        require!(
+            clock.unix_timestamp > bet.end_timestamp + REFUND_TIMEOUT_SECONDS,
+            CustomError::TimeoutNotMet
+        );
+    }
 
     let refund_amount = bet.stake;
 
@@ -75,12 +76,12 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
             ),
             refund_amount,
         )?;
-        
-        pool.total_volume = pool.total_volume.checked_sub(refund_amount).unwrap();
+
+        pool.total_staked = pool.total_staked.checked_sub(refund_amount).unwrap();
     }
 
     bet.status = BetStatus::Claimed;
-    
+
     emit!(BetRefunded {
         bet_address: bet.key(),
         user: ctx.accounts.user.key(),

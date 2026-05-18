@@ -1,16 +1,15 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount};
-use crate::state::{Pool, Protocol};
-use crate::constants::{SEED_PROTOCOL, SEED_POOL, SEED_POOL_VAULT}; 
+use crate::state::{Pool, PoolStatus, Protocol};
+use crate::constants::{SEED_PROTOCOL, SEED_POOL, SEED_POOL_VAULT};
 use crate::errors::CustomError;
 use crate::events::PoolCreated;
 
 #[derive(Accounts)]
 #[instruction(
-    pool_id: u64,
-    title: String, 
-    start_time: i64, 
-    end_time: i64, 
+    title: String,
+    start_time: i64,
+    end_time: i64,
     max_accuracy_buffer: u64,
     conviction_bonus_bps: u64
 )]
@@ -26,8 +25,8 @@ pub struct CreatePool<'info> {
     #[account(
         init,
         payer = created_by,
-        space = 8 + 350, 
-        seeds = [SEED_POOL, created_by.key().as_ref(), &pool_id.to_le_bytes()],
+        space = 8 + 360,
+        seeds = [SEED_POOL, created_by.key().as_ref(), &protocol.total_pools.to_le_bytes()],
         bump
     )]
     pub pool: Account<'info, Pool>,
@@ -41,7 +40,7 @@ pub struct CreatePool<'info> {
         token::authority = pool,
     )]
     pub pool_vault: Account<'info, TokenAccount>,
-    
+
     pub token_mint: Account<'info, token::Mint>,
 
     #[account(mut)]
@@ -57,7 +56,6 @@ pub struct CreatePool<'info> {
 
 pub fn create_pool(
     ctx: Context<CreatePool>,
-    pool_id: u64,
     title: String,
     start_time: i64,
     end_time: i64,
@@ -68,10 +66,19 @@ pub fn create_pool(
 
     let pool = &mut ctx.accounts.pool;
     let protocol = &mut ctx.accounts.protocol;
-    
+
+    let pool_id = protocol.total_pools;
+
     let total_duration = end_time.saturating_sub(start_time);
     let cutoff_duration = (total_duration / 20).max(10).min(120);
     let cutoff_time = end_time.saturating_sub(cutoff_duration);
+
+    let clock = Clock::get()?;
+    let initial_status = if clock.unix_timestamp < start_time {
+        PoolStatus::Upcoming
+    } else {
+        PoolStatus::Active
+    };
 
     pool.created_by = ctx.accounts.created_by.key();
     pool.title = title.clone();
@@ -80,20 +87,19 @@ pub fn create_pool(
     pool.start_time = start_time;
     pool.end_time = end_time;
     pool.cutoff_time = cutoff_time;
-    pool.total_volume = 0;
+    pool.total_staked = 0;
+    pool.distributable_amount = 0;
     pool.total_participants = 0;
     pool.max_accuracy_buffer = max_accuracy_buffer;
-    pool.conviction_bonus_bps = conviction_bonus_bps; 
-    
-    pool.is_resolved = false;
+    pool.conviction_bonus_bps = conviction_bonus_bps;
     pool.resolution_result = 0;
-    
+    pool.resolution_ts = 0;
     pool.total_weight = 0;
-    pool.weight_finalized = false;
+    pool.status = initial_status;
     pool.bump = ctx.bumps.pool;
-    
+
     protocol.total_pools = protocol.total_pools.checked_add(1).unwrap();
-    
+
     emit!(PoolCreated {
         pool_name: title,
         start_time,

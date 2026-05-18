@@ -6,6 +6,7 @@ pub const MATH_PRECISION: u128 = 1_000_000;
 pub fn calculate_accuracy_score(
     prediction: u64,
     result: u64,
+    max_accuracy_buffer: u64,
 ) -> Result<u64> {
     if result == 0 {
         return Ok(0);
@@ -17,14 +18,16 @@ pub fn calculate_accuracy_score(
         result - prediction
     };
 
+    if max_accuracy_buffer > 0 && diff >= max_accuracy_buffer {
+        return Ok(0);
+    }
+
     let error_scaled = (diff as u128)
         .checked_mul(MATH_PRECISION)
         .ok_or(CustomError::MathOverflow)?
         .checked_div(result as u128)
         .ok_or(CustomError::MathOverflow)?;
 
-    // AccuracyScore = 1 / (1 + 10 * Error)
-    // Scaled to precision: (PRECISION^2) / (PRECISION + 10 * error_scaled)
     let denominator = MATH_PRECISION
         .checked_add(
             error_scaled
@@ -56,22 +59,18 @@ pub fn calculate_time_bonus(
         return Ok(MATH_PRECISION as u64);
     }
 
-    // T = (cutoff_time - entry_time) / (cutoff_time - start_time)
     let t_scaled = time_from_start
         .checked_mul(MATH_PRECISION)
         .ok_or(CustomError::MathOverflow)?
         .checked_div(total_duration)
         .ok_or(CustomError::MathOverflow)?;
 
-    // T^2
     let t_sq_scaled = t_scaled
         .checked_mul(t_scaled)
         .ok_or(CustomError::MathOverflow)?
         .checked_div(MATH_PRECISION)
         .ok_or(CustomError::MathOverflow)?;
 
-    // TimeWeight = 1 + (1.5 * T^2)
-    // Scaled: MATH_PRECISION + (1.5 * t_sq_scaled) 
     let bonus = t_sq_scaled
         .checked_mul(15)
         .ok_or(CustomError::MathOverflow)?

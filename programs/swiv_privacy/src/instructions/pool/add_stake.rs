@@ -42,7 +42,7 @@ pub fn add_stake(ctx: Context<AddStake>, amount: u64) -> Result<()> {
         amount,
     )?;
 
-    ctx.accounts.pool.total_volume = ctx.accounts.pool.total_volume
+    ctx.accounts.pool.total_staked = ctx.accounts.pool.total_staked
         .checked_add(amount)
         .unwrap();
 

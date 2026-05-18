@@ -10,7 +10,7 @@ pub mod utils;
 
 use instructions::*;
 
-declare_id!("4SxyJFDVfLgVhQjYGuJduazne3jpmL1uQ9zK3DKNocuu");
+declare_id!("4RDfF1cC6WBGyQ1zhUNDkbPwMfSKjuCPXF3ygt6KmVwy");
 
 #[ephemeral]
 #[program]
@@ -29,8 +29,9 @@ pub mod swiv_privacy {
         ctx: Context<UpdateConfig>,
         new_treasury: Option<Pubkey>,
         new_protocol_fee_bps: Option<u64>,
+        new_batch_settle_wait_duration: Option<i64>,
     ) -> Result<()> {
-        admin::update_config(ctx, new_treasury, new_protocol_fee_bps)
+        admin::update_config(ctx, new_treasury, new_protocol_fee_bps, new_batch_settle_wait_duration)
     }
 
     pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<()> {
@@ -74,7 +75,6 @@ pub mod swiv_privacy {
     // --- POOL ---
     pub fn create_pool(
         ctx: Context<CreatePool>,
-        pool_id: u64,
         title: String,
         start_time: i64,
         end_time: i64,
@@ -83,7 +83,6 @@ pub mod swiv_privacy {
     ) -> Result<()> {
         pool::create_pool(
             ctx,
-            pool_id,
             title,
             start_time,
             end_time,
@@ -130,5 +129,9 @@ pub mod swiv_privacy {
 
     pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
         pool::emergency_refund(ctx)
+    }
+
+    pub fn cancel_pool(ctx: Context<CancelPool>) -> Result<()> {
+        pool::cancel_pool(ctx)
     }
 }
