@@ -2,10 +2,12 @@ use anchor_lang::prelude::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum BetStatus {
+    /// Reserved, currently unused. init_bet sets new bets directly to `Active`.
+    /// Kept as the first variant to preserve borsh discriminants for existing accounts.
     Pending,
     Active,
     Resolved,
-    Claimed,    
+    Claimed,
 }
 
 #[account]

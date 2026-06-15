@@ -98,18 +98,18 @@ pub fn calculate_weight(
     time_bonus_scaled: u64,
     conviction_scaled: u64,
 ) -> Result<u128> {
-    
+
     let stake_u128 = stake as u128;
-    
+
     let raw_product = stake_u128
-        .checked_mul(accuracy_score_scaled as u128).unwrap()
-        .checked_mul(time_bonus_scaled as u128).unwrap()
-        .checked_mul(conviction_scaled as u128).unwrap();
+        .checked_mul(accuracy_score_scaled as u128).ok_or(CustomError::MathOverflow)?
+        .checked_mul(time_bonus_scaled as u128).ok_or(CustomError::MathOverflow)?
+        .checked_mul(conviction_scaled as u128).ok_or(CustomError::MathOverflow)?;
 
     let final_weight = raw_product
-        .checked_div(MATH_PRECISION).unwrap()
-        .checked_div(MATH_PRECISION).unwrap()
-        .checked_div(MATH_PRECISION).unwrap();
+        .checked_div(MATH_PRECISION).ok_or(CustomError::MathOverflow)?
+        .checked_div(MATH_PRECISION).ok_or(CustomError::MathOverflow)?
+        .checked_div(MATH_PRECISION).ok_or(CustomError::MathOverflow)?;
 
     Ok(final_weight)
 }

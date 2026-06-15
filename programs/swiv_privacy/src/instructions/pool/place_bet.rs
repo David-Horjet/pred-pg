@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
-use crate::state::{Pool, Bet, BetStatus};
-use crate::constants::{SEED_BET, SEED_POOL}; 
+use crate::state::{Pool, PoolStatus, Bet, BetStatus, Protocol};
+use crate::constants::{SEED_BET, SEED_POOL, SEED_PROTOCOL};
 use crate::errors::CustomError;
 use crate::events::BetPlaced;
 
@@ -9,6 +9,13 @@ use crate::events::BetPlaced;
 pub struct PlaceBet<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
+
+    #[account(
+        seeds = [SEED_PROTOCOL],
+        bump,
+        constraint = !protocol.paused @ CustomError::Paused
+    )]
+    pub protocol: Box<Account<'info, Protocol>>,
 
     #[account(
         seeds = [SEED_POOL, pool.created_by.as_ref(), &(pool.pool_id.to_le_bytes())],
@@ -34,6 +41,10 @@ pub fn place_bet(
     let pool = &ctx.accounts.pool;
 
     let clock = Clock::get()?;
+    require!(
+        pool.status == PoolStatus::Active || pool.status == PoolStatus::Upcoming,
+        CustomError::MarketClosed
+    );
     require!(clock.unix_timestamp < pool.cutoff_time, CustomError::MarketClosed);
     require!(bet.status == BetStatus::Active, CustomError::BetAlreadyInitialized);
 

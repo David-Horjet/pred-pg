@@ -1,12 +1,20 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
-use crate::state::Pool;
-use crate::constants::{SEED_POOL, SEED_POOL_VAULT};
+use crate::state::{Pool, PoolStatus, Protocol};
+use crate::constants::{SEED_POOL, SEED_POOL_VAULT, SEED_PROTOCOL};
+use crate::errors::CustomError;
 
 #[derive(Accounts)]
 pub struct AddStake<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
+
+    #[account(
+        seeds = [SEED_PROTOCOL],
+        bump,
+        constraint = !protocol.paused @ CustomError::Paused
+    )]
+    pub protocol: Box<Account<'info, Protocol>>,
 
     #[account(
         mut,
@@ -30,6 +38,15 @@ pub struct AddStake<'info> {
 }
 
 pub fn add_stake(ctx: Context<AddStake>, amount: u64) -> Result<()> {
+    let pool = &ctx.accounts.pool;
+    let clock = Clock::get()?;
+
+    require!(
+        pool.status == PoolStatus::Active || pool.status == PoolStatus::Upcoming,
+        CustomError::MarketClosed
+    );
+    require!(clock.unix_timestamp < pool.cutoff_time, CustomError::MarketClosed);
+
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.to_account_info(),

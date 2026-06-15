@@ -4,5 +4,8 @@ pub const SEED_POOL_VAULT: &[u8] = b"pool_vault";
 pub const SEED_BET: &[u8] = b"bet";
 
 pub const MAX_STRATEGY_LENGTH: usize = 32;
-pub const MERCY_BUFFER_DEFAULT: u64 = 500; 
+pub const MERCY_BUFFER_DEFAULT: u64 = 500;
 pub const DISCRIMINATOR_SIZE: usize = 8;
+
+/// Maximum protocol fee, in basis points (1000 = 10%).
+pub const MAX_FEE_BPS: u64 = 1000;

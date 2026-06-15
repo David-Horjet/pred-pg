@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::Protocol;
-use crate::constants::{SEED_PROTOCOL};
+use crate::constants::{SEED_PROTOCOL, MAX_FEE_BPS};
+use crate::errors::CustomError;
 use crate::events::ProtocolInitialized;
 
 #[derive(Accounts)]
@@ -30,8 +31,10 @@ pub fn initialize_protocol(
     ctx: Context<InitializeProtocol>,
     protocol_fee_bps: u64 
 ) -> Result<()> {
+    require!(protocol_fee_bps <= MAX_FEE_BPS, CustomError::InvalidFee);
+
     let protocol = &mut ctx.accounts.protocol;
-    
+
     protocol.admin = ctx.accounts.admin.key();
     protocol.treasury_wallet = ctx.accounts.treasury_wallet.key();
     

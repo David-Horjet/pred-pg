@@ -15,6 +15,7 @@ pub struct EmergencyRefund<'info> {
     #[account(
         mut,
         constraint = bet.user_pubkey == user.key() @ CustomError::Unauthorized,
+        constraint = bet.pool_pubkey == pool.key() @ CustomError::PoolMismatch,
         constraint = bet.status != BetStatus::Claimed @ CustomError::AlreadyClaimed
     )]
     pub bet: Box<Account<'info, Bet>>,
@@ -48,6 +49,15 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     let clock = Clock::get()?;
 
+    // Once resolution has started, bets must go through claim_reward so
+    // total_weight / total_participants / weights_calculated_count stay consistent.
+    require!(
+        pool.status != PoolStatus::Resolving
+            && pool.status != PoolStatus::Resolved
+            && pool.status != PoolStatus::Settled,
+        CustomError::AlreadyResolved
+    );
+
     if pool.status != PoolStatus::Cancelled {
         require!(
             clock.unix_timestamp > bet.end_timestamp + REFUND_TIMEOUT_SECONDS,
@@ -78,6 +88,16 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
         )?;
 
         pool.total_staked = pool.total_staked.checked_sub(refund_amount).unwrap();
+    }
+
+    // This bet will never be scored by batch_calculate_weights once Claimed,
+    // so drop it from total_participants to keep finalize_weights' completeness
+    // check (weights_calculated_count == total_participants) satisfiable.
+    if pool.status != PoolStatus::Resolving
+        && pool.status != PoolStatus::Resolved
+        && pool.status != PoolStatus::Settled
+    {
+        pool.total_participants = pool.total_participants.saturating_sub(1);
     }
 
     bet.status = BetStatus::Claimed;

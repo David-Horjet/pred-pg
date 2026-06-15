@@ -19,9 +19,11 @@ pub struct TransferAdmin<'info> {
 }
 
 pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<()> {
+    require!(new_admin != Pubkey::default(), CustomError::InvalidAdmin);
+
     let protocol = &mut ctx.accounts.protocol;
     let old_admin = protocol.admin;
-    
+
     protocol.admin = new_admin;
     
     emit!(AdminTransferred {

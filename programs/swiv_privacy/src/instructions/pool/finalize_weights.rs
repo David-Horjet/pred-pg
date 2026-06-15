@@ -43,6 +43,17 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
 
     require!(pool.status == PoolStatus::Resolving, CustomError::SettlementTooEarly);
 
+    // If any bets have been scored, all of them must be scored before finalizing —
+    // otherwise unscored bets would be stuck with calculated_weight == 0 while
+    // total_weight > 0, causing claim_reward to silently pay them nothing.
+    // A pool where batch_calculate_weights was never run at all (count == 0) is
+    // allowed to finalize with total_weight == 0, which triggers full refunds.
+    require!(
+        pool.weights_calculated_count == 0
+            || pool.weights_calculated_count == pool.total_participants,
+        CustomError::WeightsIncomplete
+    );
+
     // Enforce batch settle wait: admin cannot finalize before the mandatory delay expires.
     let clock = Clock::get()?;
     require!(

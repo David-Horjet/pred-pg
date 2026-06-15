@@ -68,7 +68,8 @@ pub fn batch_calculate_weights<'info>(
         )?;
 
         pool.total_weight = pool.total_weight.checked_add(weight).unwrap();
-        
+        pool.weights_calculated_count = pool.weights_calculated_count.checked_add(1).unwrap();
+
         bet.calculated_weight = weight;
         bet.is_weight_added = true;
         bet.status = BetStatus::Resolved;

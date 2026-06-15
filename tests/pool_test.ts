@@ -637,8 +637,6 @@ describe("Production Flow", () => {
 
         console.log(`      ✅ Bet Updated Privately. TEE Sig: ${updateSig}`);
       }
-
-      await sleep(1000);
     }
   });
 
@@ -734,7 +732,6 @@ describe("Production Flow", () => {
     console.log(
       `      ✅ Bet Updated with Stake Increase on TEE. TEE Sig: ${updateSig}`,
     );
-    await sleep(1000);
 
     // ── Verify results ────────────────────────────────────────────────────────
     // Fetch bet state from TEE (canonical while delegated)

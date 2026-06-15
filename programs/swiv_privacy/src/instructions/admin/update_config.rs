@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use crate::state::Protocol;
-use crate::constants::SEED_PROTOCOL;
+use crate::constants::{SEED_PROTOCOL, MAX_FEE_BPS};
 use crate::errors::CustomError;
 use crate::events::ConfigUpdated;
 
@@ -38,6 +38,7 @@ pub fn update_config(
     }
 
     if let Some(fee) = new_protocol_fee_bps {
+        require!(fee <= MAX_FEE_BPS, CustomError::InvalidFee);
         protocol.protocol_fee_bps = fee;
     }
 

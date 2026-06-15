@@ -24,6 +24,10 @@ pub struct ResolvePool<'info> {
     pub pool: Account<'info, Pool>,
 }
 
+/// `final_outcome == 0` is a valid, intentional value: calculate_accuracy_score
+/// treats result == 0 as "no winners", giving every bet a weight of 0 and
+/// causing claim_reward to refund each participant's full stake. Admins should
+/// use 0 to void a pool (e.g. bad/unavailable oracle data) and resolve normally otherwise.
 pub fn resolve_pool(ctx: Context<ResolvePool>, final_outcome: u64) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
 

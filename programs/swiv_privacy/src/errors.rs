@@ -37,5 +37,13 @@ pub enum CustomError {
     #[msg("You must wait for the pool to end before undelegating to preserve privacy.")]
     UndelegationTooEarly,
     #[msg("Market is closed for new predictions (cutoff reached).")]
-    MarketClosed,    #[msg("Pool cannot be cancelled once resolution has started.")]
-    PoolNotCancellable,}
+    MarketClosed,
+    #[msg("Pool cannot be cancelled once resolution has started.")]
+    PoolNotCancellable,
+    #[msg("Not all bets have been scored yet; cannot finalize.")]
+    WeightsIncomplete,
+    #[msg("Protocol fee exceeds the maximum allowed value.")]
+    InvalidFee,
+    #[msg("New admin must not be the default/zero pubkey.")]
+    InvalidAdmin,
+}

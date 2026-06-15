@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::state::{Bet, Pool, BetStatus};
+use crate::state::{Bet, Pool, PoolStatus, BetStatus};
 use crate::constants::{SEED_BET, SEED_POOL};
 use crate::errors::CustomError;
 use crate::events::BetUpdated;
@@ -35,8 +35,13 @@ pub fn update_bet(
     new_prediction: u64,
     additional_stake: u64,
 ) -> Result<()> {
+    let pool = &ctx.accounts.pool;
     let clock = Clock::get()?;
-    require!(clock.unix_timestamp < ctx.accounts.pool.cutoff_time, CustomError::MarketClosed);
+    require!(
+        pool.status == PoolStatus::Active || pool.status == PoolStatus::Upcoming,
+        CustomError::MarketClosed
+    );
+    require!(clock.unix_timestamp < pool.cutoff_time, CustomError::MarketClosed);
 
     let bet = &mut ctx.accounts.bet;
 

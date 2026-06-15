@@ -28,6 +28,7 @@ pub struct ClaimReward<'info> {
     #[account(
         mut,
         constraint = bet.user_pubkey == user.key() @ CustomError::Unauthorized,
+        constraint = bet.pool_pubkey == pool.key() @ CustomError::PoolMismatch,
         constraint = bet.status != BetStatus::Claimed @ CustomError::AlreadyClaimed,
     )]
     pub bet: Box<Account<'info, Bet>>,
@@ -46,6 +47,11 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()> {
     require!(pool.status == PoolStatus::Resolved, CustomError::SettlementTooEarly);
 
     if pool.total_weight > 0 {
+        require!(
+            bet.status == BetStatus::Resolved,
+            CustomError::NotCalculatedYet
+        );
+
         if bet.calculated_weight > 0 {
             let total_distributable_pot = pool.distributable_amount as u128;
 
@@ -63,6 +69,10 @@ pub fn claim_reward(ctx: Context<ClaimReward>) -> Result<()> {
     if payout_amount > 0 {
         require!(
             payout_amount <= pool.distributable_amount,
+            CustomError::InsufficientLiquidity
+        );
+        require!(
+            payout_amount <= ctx.accounts.pool_vault.amount,
             CustomError::InsufficientLiquidity
         );
 

@@ -62,7 +62,13 @@ pub fn create_pool(
     max_accuracy_buffer: u64,
     conviction_bonus_bps: u64,
 ) -> Result<()> {
+    let clock = Clock::get()?;
+
+    // Pools must end in the future and run long enough that cutoff_time (which
+    // is end_time minus a 10-120s buffer) doesn't fall before start_time.
     require!(end_time > start_time, CustomError::DurationTooShort);
+    require!(end_time > clock.unix_timestamp, CustomError::DurationTooShort);
+    require!(end_time.saturating_sub(start_time) >= 10, CustomError::DurationTooShort);
 
     let pool = &mut ctx.accounts.pool;
     let protocol = &mut ctx.accounts.protocol;
@@ -73,7 +79,6 @@ pub fn create_pool(
     let cutoff_duration = (total_duration / 20).max(10).min(120);
     let cutoff_time = end_time.saturating_sub(cutoff_duration);
 
-    let clock = Clock::get()?;
     let initial_status = if clock.unix_timestamp < start_time {
         PoolStatus::Upcoming
     } else {
@@ -95,6 +100,7 @@ pub fn create_pool(
     pool.resolution_result = 0;
     pool.resolution_ts = 0;
     pool.total_weight = 0;
+    pool.weights_calculated_count = 0;
     pool.status = initial_status;
     pool.bump = ctx.bumps.pool;
 

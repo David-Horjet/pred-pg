@@ -35,6 +35,8 @@ pub struct Pool {
 
     pub total_weight: u128,
     pub total_participants: u64,
+    /// Number of bets that have been scored by batch_calculate_weights for this pool's resolution.
+    pub weights_calculated_count: u64,
 
     pub status: PoolStatus,
 
