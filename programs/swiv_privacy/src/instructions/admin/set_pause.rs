@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use crate::state::Protocol;
 use crate::constants::SEED_PROTOCOL;
 use crate::errors::CustomError;
-use crate::events::PauseChanged;
 
 #[derive(Accounts)]
 pub struct SetPause<'info> {
@@ -19,10 +18,6 @@ pub struct SetPause<'info> {
 
 pub fn set_pause(ctx: Context<SetPause>, paused: bool) -> Result<()> {
     ctx.accounts.protocol.paused = paused;
-
-    emit!(PauseChanged {
-        is_paused: paused,
-    });
 
     Ok(())
 }

@@ -1,5 +1,5 @@
-import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
+import * as anchor from "@anchor-lang/core";
+import { Program } from "@anchor-lang/core";
 import { SwivPrivacy } from "../target/types/swiv_privacy";
 import { SEED_PROTOCOL } from "./utils";
 import { PublicKey, SystemProgram } from "@solana/web3.js";

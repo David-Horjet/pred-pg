@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use crate::state::{Bet, Pool, PoolStatus, BetStatus};
 use crate::constants::{SEED_BET, SEED_POOL};
 use crate::errors::CustomError;
-use crate::events::BetUpdated;
 
 /// TEE-only instruction: updates prediction and optionally records a stake increase.
 /// Token transfers for stake increases MUST be handled separately via `add_stake` on L1
@@ -54,12 +53,6 @@ pub fn update_bet(
     } else {
         msg!("Bet Updated: Prediction={}", new_prediction);
     }
-
-    emit!(BetUpdated {
-        bet_address: bet.key(),
-        user: ctx.accounts.user.key(),
-        pool_identifier: ctx.accounts.pool.title.clone(),
-    });
 
     Ok(())
 }

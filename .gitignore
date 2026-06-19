@@ -10,3 +10,7 @@ artifacts/
 *.txt
 tests/keys/
 keypair.json
+magicblock-test-storage
+scratch_sdk
+.stavreng-ignore
+*.so

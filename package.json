@@ -5,16 +5,10 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.32.1",
-    "@magicblock-labs/ephemeral-rollups-sdk": "^0.8.3",
+    "@anchor-lang/core": "^1.0.2",
+    "@magicblock-labs/ephemeral-rollups-sdk": "^0.14.4",
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.98.4",
-    "@types/crc": "^4.0.0",
-    "axios": "^1.13.2",
-    "crc": "^4.3.2",
-    "dotenv": "^17.2.3",
-    "ed2curve": "^0.3.0",
-    "js-sha3": "^0.9.3",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {

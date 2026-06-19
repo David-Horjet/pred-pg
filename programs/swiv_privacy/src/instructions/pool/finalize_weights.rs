@@ -1,6 +1,5 @@
 use crate::constants::{SEED_POOL, SEED_POOL_VAULT, SEED_PROTOCOL};
 use crate::errors::CustomError;
-use crate::events::WeightsFinalized;
 use crate::state::{Pool, PoolStatus, Protocol};
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
@@ -61,10 +60,9 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
 
     let total_assets = ctx.accounts.pool_vault.amount;
     let mut distributable_amount = total_assets;
-    let mut fee_amount: u64 = 0;
 
     if config.protocol_fee_bps > 0 && pool.total_participants > 1 && pool.total_weight > 0 {
-        fee_amount = (total_assets as u128)
+        let fee_amount = (total_assets as u128)
             .checked_mul(config.protocol_fee_bps as u128)
             .unwrap()
             .checked_div(10000)
@@ -79,7 +77,7 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
 
             token::transfer(
                 CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
+                    ctx.accounts.token_program.key(),
                     Transfer {
                         from: ctx.accounts.pool_vault.to_account_info(),
                         to: ctx.accounts.treasury_token_account.to_account_info(),
@@ -96,12 +94,6 @@ pub fn finalize_weights(ctx: Context<FinalizeWeights>) -> Result<()> {
 
     pool.distributable_amount = distributable_amount;
     pool.status = PoolStatus::Resolved;
-
-    emit!(WeightsFinalized {
-        pool_name: pool.title.clone(),
-        total_weight: pool.total_weight,
-        fee_deducted: fee_amount,
-    });
 
     Ok(())
 }

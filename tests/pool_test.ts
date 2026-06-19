@@ -1,5 +1,5 @@
-import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
+import * as anchor from "@anchor-lang/core";
+import { Program } from "@anchor-lang/core";
 import { SwivPrivacy } from "../target/types/swiv_privacy";
 import {
   PublicKey,
@@ -33,6 +33,7 @@ import {
   waitUntilPermissionActive,
   MAGIC_CONTEXT_ID,
   MAGIC_PROGRAM_ID,
+  EPHEMERAL_VAULT_ID,
 } from "./utils";
 import * as nacl from "tweetnacl";
 import { expect } from "chai";
@@ -59,6 +60,9 @@ async function getAuthTokenWithRetry(
   signer: (msg: Uint8Array) => Promise<Uint8Array>,
   retries = 3,
 ): Promise<{ token: string }> {
+  if (endpoint.includes("localhost") || endpoint.includes("127.0.0.1")) {
+    return { token: "" };
+  }
   for (let i = 0; i < retries; i++) {
     try {
       return await getAuthToken(endpoint, pubkey, signer);
@@ -88,6 +92,9 @@ describe("Production Flow", () => {
   let poolPda: PublicKey;
   let vaultPda: PublicKey;
   let poolId: number = 0;
+  let adminUsdcAta: PublicKey;
+  let adminStartUsdc = 0;
+  let userTotalStakes: number[] = [0, 0];
 
   const POOL_TITLE = `TEE-Pool-${Math.floor(Math.random() * 1000)}`;
   let END_TIME: anchor.BN;
@@ -102,9 +109,60 @@ describe("Production Flow", () => {
   const betPdas: PublicKey[] = [];
   const permissionPdas: PublicKey[] = [];
 
-  const TEE_URL = "https://devnet-tee.magicblock.app";
-  const TEE_WS_URL = "wss://devnet-tee.magicblock.app";
+  const endpoint = provider.connection.rpcEndpoint;
+  const isLocalnet = endpoint.includes("localhost") || endpoint.includes("127.0.0.1");
+
+  const TEE_URL = isLocalnet ? "http://localhost:7799" : "https://devnet-tee.magicblock.app";
+  const TEE_WS_URL = isLocalnet ? "ws://localhost:7800" : "wss://devnet-tee.magicblock.app";
   const ephemeralRpcEndpoint = TEE_URL;
+
+  let totalGasFees = 0;
+  let totalRentSpent = 0;
+  let totalRentReclaimed = 0;
+  let globalStartBalance = 0;
+  let setupGasFees = 0;
+  let setupRentSpent = 0;
+  let setupRentReclaimed = 0;
+
+  async function trackBalanceChange<T>(
+    actionName: string,
+    isAccountCreation: boolean,
+    fn: () => Promise<T>,
+    isSetup = false
+  ): Promise<T> {
+    const balanceBefore = await provider.connection.getBalance(admin.publicKey);
+    const result = await fn();
+    const balanceAfter = await provider.connection.getBalance(admin.publicKey);
+    const diff = balanceBefore - balanceAfter;
+
+    if (diff > 0) {
+      if (isAccountCreation) {
+        const txFee = 5000; // standard Solana signature fee (5000 lamports)
+        const rent = diff - txFee;
+        totalGasFees += txFee;
+        totalRentSpent += rent;
+        if (isSetup) {
+          setupGasFees += txFee;
+          setupRentSpent += rent;
+        }
+        console.log(`      📊 [METRICS] ${actionName} - Gas Fee: ${(txFee / LAMPORTS_PER_SOL).toFixed(6)} SOL, Rent: ${(rent / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+      } else {
+        totalGasFees += diff;
+        if (isSetup) {
+          setupGasFees += diff;
+        }
+        console.log(`      📊 [METRICS] ${actionName} - Gas Fee: ${(diff / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+      }
+    } else if (diff < 0) {
+      const reclaimed = -diff;
+      totalRentReclaimed += reclaimed;
+      if (isSetup) {
+        setupRentReclaimed += reclaimed;
+      }
+      console.log(`      📊 [METRICS] ${actionName} - Rent Reclaimed: ${(reclaimed / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    }
+    return result;
+  }
 
   // Helper: Retry a function up to 'retries' times with a delay
   async function withRetry<T>(
@@ -124,6 +182,13 @@ describe("Production Flow", () => {
           }/${retries}). Retrying in ${delayMs / 1000}s...`,
         );
         console.log(`      Error: ${e.message}`);
+        if (e.logs) {
+          console.log(`      Logs:\n${e.logs.join("\n")}`);
+        } else if (e.getLogs) {
+          try {
+            console.log(`      Logs:\n${e.getLogs().join("\n")}`);
+          } catch (_) {}
+        }
         await sleep(delayMs);
       }
     }
@@ -131,36 +196,30 @@ describe("Production Flow", () => {
   }
 
   it("1. Setup Environment", async () => {
+    globalStartBalance = await provider.connection.getBalance(admin.publicKey);
+
     [protocolPda] = PublicKey.findProgramAddressSync(
       [SEED_PROTOCOL],
       program.programId,
     );
-    usdcMint = await withRetry(
+    usdcMint = await trackBalanceChange("Create Mint", true, () => withRetry(
       () => createMint(provider.connection, admin, admin.publicKey, null, 6),
       "Create Mint",
       3,
       3000,
-    );
+    ), true);
+
+    const adminAtaAccount = await trackBalanceChange("Create Admin ATA", true, () => getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      admin,
+      usdcMint,
+      admin.publicKey,
+    ), true);
+    adminUsdcAta = adminAtaAccount.address;
+    adminStartUsdc = (await provider.connection.getTokenAccountBalance(adminUsdcAta)).value.uiAmount || 0;
 
     for (const user of users) {
-      const bal = await provider.connection.getBalance(user.publicKey);
-      if (bal < 0.1 * LAMPORTS_PER_SOL) {
-        await withRetry(
-          () => provider.sendAndConfirm(
-            new anchor.web3.Transaction().add(
-              SystemProgram.transfer({
-                fromPubkey: admin.publicKey,
-                toPubkey: user.publicKey,
-                lamports: 0.1 * LAMPORTS_PER_SOL,
-              }),
-            ),
-          ),
-          "Fund User",
-          3,
-          3000,
-        );
-      }
-      const ata = await withRetry(
+      const ata = await trackBalanceChange("Create ATA", true, () => withRetry(
         () => getOrCreateAssociatedTokenAccount(
           provider.connection,
           admin,
@@ -170,9 +229,9 @@ describe("Production Flow", () => {
         "Create ATA",
         3,
         3000,
-      );
+      ), true);
       userAtas.push(ata.address);
-      await withRetry(
+      await trackBalanceChange("Mint Tokens", false, () => withRetry(
         () => mintTo(
           provider.connection,
           admin,
@@ -184,29 +243,29 @@ describe("Production Flow", () => {
         "Mint Tokens",
         3,
         3000,
-      );
+      ), true);
     }
 
     try {
-      await program.methods
+      await trackBalanceChange("Initialize Protocol", true, () => program.methods
         .initializeProtocol(new anchor.BN(300))
         .accountsPartial({
           admin: admin.publicKey,
           treasuryWallet: admin.publicKey,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .rpc(), true);
     } catch (e) {}
 
     // Set batch_settle_wait_duration to 0 so tests don't need to wait 60s between resolve and finalize
-    await program.methods
+    await trackBalanceChange("Update Config", false, () => program.methods
       .updateConfig(null, null, new anchor.BN(0))
       .accountsPartial({
         admin: admin.publicKey,
         protocol: protocolPda,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .rpc(), true);
 
     const protocol = await program.account.protocol.fetch(protocolPda);
     poolId = protocol.totalPools.toNumber();
@@ -214,8 +273,10 @@ describe("Production Flow", () => {
 
   it("2. Create Pool (L1)", async () => {
     const now = Math.floor(Date.now() / 1000);
-    const START_TIME = new anchor.BN(now);
-    END_TIME = START_TIME.add(new anchor.BN(120)); // Increased duration to 120s to fix TEE cutoff issue
+    const START_TIME = new anchor.BN(now - 10);
+    // Detect localnet and use shorter duration (75s) to speed up tests, otherwise 120s
+    const poolDuration = isLocalnet ? 75 : 120;
+    END_TIME = START_TIME.add(new anchor.BN(poolDuration));
 
     [poolPda] = PublicKey.findProgramAddressSync(
       [
@@ -237,7 +298,7 @@ describe("Production Flow", () => {
       admin.publicKey,
     );
 
-    await program.methods
+    await trackBalanceChange("Create Pool", true, () => program.methods
       .createPool(
         POOL_TITLE,
         START_TIME,
@@ -256,7 +317,7 @@ describe("Production Flow", () => {
         systemProgram: SystemProgram.programId,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
       })
-      .rpc();
+      .rpc());
     console.log("    ✅ Pool Created on L1");
   });
 
@@ -275,10 +336,10 @@ describe("Production Flow", () => {
 
     // Short duration (25s) -> 10s cutoff before end
     const now = Math.floor(Date.now() / 1000);
-    const start = new anchor.BN(now);
+    const start = new anchor.BN(now - 10);
     const end = start.add(new anchor.BN(25));
     
-    await program.methods
+    await trackBalanceChange("Create Pool (Cutoff Check)", true, () => program.methods
       .createPool("Cutoff Check", start, end, toPriceBn(5), new anchor.BN(0))
       .accountsPartial({
         protocol: protocolPda,
@@ -291,12 +352,12 @@ describe("Production Flow", () => {
         systemProgram: SystemProgram.programId,
         rent: anchor.web3.SYSVAR_RENT_PUBKEY,
       })
-      .rpc();
+      .rpc(), true);
 
     const tempBetPda = PublicKey.findProgramAddressSync([SEED_BET, tempPoolPda.toBuffer(), users[0].publicKey.toBuffer()], program.programId)[0];
 
     // Successful registration BEFORE cutoff
-    await program.methods
+    await trackBalanceChange("Init Bet (Early Check)", true, () => program.methods
       .initBet(new anchor.BN(10 * 1e6), "early_req")
       .accountsPartial({
         user: users[0].publicKey,
@@ -309,7 +370,7 @@ describe("Production Flow", () => {
         systemProgram: SystemProgram.programId,
       })
       .signers([users[0], admin])
-      .rpc();
+      .rpc(), true);
     console.log("      ✅ Successful entry before cutoff recorded");
 
     const pool = await program.account.pool.fetch(tempPoolPda);
@@ -354,15 +415,15 @@ describe("Production Flow", () => {
       await sleep(timeToExpiry);
     }
 
-    await program.methods
+    await trackBalanceChange("Resolve Pool (Cutoff Check)", false, () => program.methods
       .resolvePool(new anchor.BN(100_000))
       .accountsPartial({ admin: admin.publicKey, protocol: protocolPda, pool: tempPoolPda })
-      .rpc();
+      .rpc(), true);
     
     const adminAta = (await getOrCreateAssociatedTokenAccount(provider.connection, admin, usdcMint, admin.publicKey)).address;
     
     // Finalize with 0 total_weight (skipping batchCalculateWeights)
-    await program.methods
+    await trackBalanceChange("Finalize Weights (Cutoff Check)", false, () => program.methods
       .finalizeWeights()
       .accountsPartial({
         admin: admin.publicKey,
@@ -372,7 +433,7 @@ describe("Production Flow", () => {
         treasuryTokenAccount: adminAta,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .rpc();
+      .rpc(), true);
 
     const poolAfterFinalize = await program.account.pool.fetch(tempPoolPda);
     console.log(`      📊 Refund Pool Logic -> totalWeight: ${poolAfterFinalize.totalWeight.toString()}, totalStaked: ${poolAfterFinalize.totalStaked.toString()}`);
@@ -380,18 +441,20 @@ describe("Production Flow", () => {
     const balanceBefore = (await provider.connection.getTokenAccountBalance(userAtas[0])).value.uiAmount;
     console.log(`      💰 User 1 Balance Before Refund: ${balanceBefore} USDC`);
     
-    await program.methods
+    const tempPermissionPda = permissionPdaFromAccount(tempBetPda);
+    await trackBalanceChange("Claim Refund & Close Pool (Cutoff Check)", false, () => program.methods
       .claimReward()
       .accountsPartial({
         user: users[0].publicKey,
+        sponsor: admin.publicKey,
         pool: tempPoolPda,
         poolVault: tempVaultPda,
         bet: tempBetPda,
         userTokenAccount: userAtas[0],
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .signers([users[0]])
-      .rpc();
+      .signers([users[0], admin])
+      .rpc(), true);
 
     const balanceAfter = (await provider.connection.getTokenAccountBalance(userAtas[0])).value.uiAmount;
     const diff = balanceAfter! - balanceBefore!;
@@ -409,6 +472,7 @@ describe("Production Flow", () => {
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
       const requestId = requestIds[i];
+      userTotalStakes[i] = betAmount.toNumber() / 1e6;
       console.log(
         `      👤 Processing User ${i + 1} (${user.publicKey
           .toBase58()
@@ -421,6 +485,7 @@ describe("Production Flow", () => {
       );
       betPdas.push(betPda);
       const permissionPda = permissionPdaFromAccount(betPda);
+      permissionPdas.push(permissionPda);
 
       const bufferUserBet =
         delegateBufferPdaFromDelegatedAccountAndOwnerProgram(
@@ -450,44 +515,9 @@ describe("Production Flow", () => {
             systemProgram: SystemProgram.programId,
           })
           .instruction(),
-        await program.methods
-          .createBetPermission(requestId)
-          .accountsPartial({
-            payer: admin.publicKey,
-            user: user.publicKey,
-            userBet: betPda,
-            pool: poolPda,
-            permission: permissionPda,
-            permissionProgram: PERMISSION_PROGRAM_ID,
-            systemProgram: SystemProgram.programId,
-          })
-          .instruction(),
-        await program.methods
-          .delegateBetPermission(requestId)
-          .accountsPartial({
-            payer: admin.publicKey,
-            user: user.publicKey,
-            pool: poolPda,
-            userBet: betPda,
-            permission: permissionPda,
-            permissionProgram: PERMISSION_PROGRAM_ID,
-            delegationProgram: DELEGATION_PROGRAM_ID,
-            delegationRecord:
-              delegationRecordPdaFromDelegatedAccount(permissionPda),
-            delegationMetadata:
-              delegationMetadataPdaFromDelegatedAccount(permissionPda),
-            delegationBuffer:
-              delegateBufferPdaFromDelegatedAccountAndOwnerProgram(
-                permissionPda,
-                PERMISSION_PROGRAM_ID,
-              ),
-            validator: TEE_VALIDATOR,
-            systemProgram: SystemProgram.programId,
-          })
-          .instruction(),
 
         await program.methods
-          .delegateBet(requestId)
+          .delegateBet()
           .accountsPartial({
             user: user.publicKey,
             payer: admin.publicKey,
@@ -505,12 +535,12 @@ describe("Production Flow", () => {
       );
 
       tx.feePayer = admin.publicKey;
-
-      const sig = await anchor.web3.sendAndConfirmTransaction(
+ 
+      const sig = await trackBalanceChange(`Init & Delegate Bet User ${i + 1}`, true, () => anchor.web3.sendAndConfirmTransaction(
         provider.connection,
         tx,
         [admin, user],
-      );
+      ));
       console.log(`        ✅ L1 Transaction Confirmed: ${sig}`);
 
       console.log(`        ⏳ Waiting for TEE to index delegation...`);
@@ -584,6 +614,20 @@ describe("Production Flow", () => {
           i
         ].toString()})...`,
       );
+      const createPermissionIx = await program.methods
+        .createBetPermission(requestId)
+        .accountsPartial({
+          payer: user.publicKey,
+          user: user.publicKey,
+          userBet: betPda,
+          pool: poolPda,
+          permission: permissionPdas[i],
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          vault: EPHEMERAL_VAULT_ID,
+          magicProgram: MAGIC_PROGRAM_ID,
+        })
+        .instruction();
+
       const placeBetIx = await program.methods
         .placeBet(predictions[i], requestId)
         .accountsPartial({
@@ -593,7 +637,7 @@ describe("Production Flow", () => {
         })
         .instruction();
 
-      const tx = new anchor.web3.Transaction().add(placeBetIx);
+      const tx = new anchor.web3.Transaction().add(createPermissionIx, placeBetIx);
       tx.feePayer = user.publicKey;
       tx.recentBlockhash = (await teeConnection.getLatestBlockhash()).blockhash;
 
@@ -681,6 +725,7 @@ describe("Production Flow", () => {
       .signers([user])
       .rpc();
 
+    userTotalStakes[0] += additionalStake.toNumber() / 1e6;
     console.log(`      ✅ addStake executed on L1.`);
 
     // ── Step 2: Update prediction + record stake increase on TEE ─────────────
@@ -873,7 +918,7 @@ describe("Production Flow", () => {
 
     // Retry delegation if L1 is busy
     await withRetry(async () => {
-      const tx = await program.methods
+      const tx = await trackBalanceChange("Delegate Pool (L1)", true, () => program.methods
         .delegatePool(new anchor.BN(poolId))
         .accountsPartial({
           admin: admin.publicKey,
@@ -887,7 +932,7 @@ describe("Production Flow", () => {
           delegationProgram: DELEGATION_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
-        .rpc();
+        .rpc());
       console.log(`    ✅ Pool Delegated (L1 Sig: ${tx})`);
     }, "Delegate Pool");
 
@@ -961,24 +1006,63 @@ describe("Production Flow", () => {
 
     await sleep(2000);
 
+    // --- DEBUG BETS ON TEE ---
+    const debugTeeProvider = new anchor.AnchorProvider(
+      erConn,
+      new anchor.Wallet(admin),
+      { commitment: "confirmed" },
+    );
+    const debugTeeProgram = new anchor.Program<SwivPrivacy>(
+      program.idl as any,
+      debugTeeProvider,
+    );
+    for (let i = 0; i < betPdas.length; i++) {
+      const betOnTee = await debugTeeProgram.account.bet.fetch(betPdas[i]);
+      console.log(`      🧪 TEE Bet ${i + 1} - Prediction: ${betOnTee.prediction.toString()}, Weight: ${betOnTee.calculatedWeight.toString()}, Status: ${JSON.stringify(betOnTee.status)}`);
+    }
 
+    // --- CLOSE PERMISSIONS (TEE) ---
+    console.log("    🔒 Closing Ephemeral Permission accounts on TEE...");
+    for (let i = 0; i < users.length; i++) {
+      const betPda = betPdas[i];
+      const permissionPda = permissionPdas[i];
+
+      await withRetry(async () => {
+        const closeTx = await erProgram.methods
+          .closeBetPermission()
+          .accountsPartial({
+            payer: admin.publicKey,
+            userBet: betPda,
+            permission: permissionPda,
+            vault: EPHEMERAL_VAULT_ID,
+            magicProgram: MAGIC_PROGRAM_ID,
+            permissionProgram: PERMISSION_PROGRAM_ID,
+          })
+          .rpc();
+        console.log(`    ✅ Permission closed on TEE for User ${i + 1} (Sig: ${closeTx})`);
+      }, `Close Permission User ${i + 1}`);
+    }
+
+    await sleep(2000);
 
     // --- UNDELEGATE BETS (Flush to L1) ---
     console.log(
-      "    📤 Flushing User Bet Data back to L1 (Batch Undelegate)...",
+      "    📤 Flushing User Bet Data back to L1 (Undelegate individually)...",
     );
 
-    await withRetry(async () => {
-      const undelegateBetsTx = await erProgram.methods
-        .batchUndelegateBets()
-        .accounts({
-          payer: admin.publicKey,
-          pool: poolPda,
-        })
-        .remainingAccounts(batchAccounts)
-        .rpc();
-      console.log(`    ✅ User Bets Flushed to L1 (Sig: ${undelegateBetsTx})`);
-    }, "Flush Bets (TEE -> L1)");
+    for (let i = 0; i < betPdas.length; i++) {
+      const betPda = betPdas[i];
+      await withRetry(async () => {
+        const undelegateBetTx = await erProgram.methods
+          .undelegateBet()
+          .accountsPartial({
+            payer: admin.publicKey,
+            userBet: betPda,
+          })
+          .rpc();
+        console.log(`    ✅ User Bet ${i + 1} Flushed to L1 (Sig: ${undelegateBetTx})`);
+      }, `Flush Bet User ${i + 1} (TEE -> L1)`);
+    }
 
     await sleep(2000);
 
@@ -1009,6 +1093,10 @@ describe("Production Flow", () => {
     
     expect(bet1.calculatedWeight.gt(new anchor.BN(100_000_000))).to.be.true;
     expect(bet2.calculatedWeight.gt(new anchor.BN(100_000_000))).to.be.true;
+
+    expect(bet1.prediction.eq(updatedPredictions[0])).to.be.true;
+    expect(bet2.prediction.eq(predictions[1])).to.be.true;
+    console.log("      ⚖️  L1 Predictions Verified successfully before Claim.");
   });
 
   it("6. Finalize & Claim Rewards", async () => {
@@ -1072,7 +1160,7 @@ describe("Production Flow", () => {
         admin.publicKey,
       );
 
-      const finalizeTx = await program.methods
+      const finalizeTx = await trackBalanceChange("Finalize Weights (L1)", false, () => program.methods
         .finalizeWeights()
         .accountsPartial({
           admin: admin.publicKey,
@@ -1083,7 +1171,7 @@ describe("Production Flow", () => {
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .signers([admin])
-        .rpc();
+        .rpc());
       console.log(`      ✅ Weights Finalized (Sig: ${finalizeTx})`);
     } catch (e: any) {
       console.log(`      ⚠️  Finalize Weights failed: ${e.message}`);
@@ -1093,6 +1181,7 @@ describe("Production Flow", () => {
     // --- 3. CLAIM REWARDS ---
     console.log("      💰 Processing User Claims...");
 
+    let totalPayouts = 0;
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
       const userBetPda = betPdas[i];
@@ -1108,19 +1197,21 @@ describe("Production Flow", () => {
       );
       const startAmount = balBefore.value.uiAmount || 0;
 
+      const userPermissionPda = permissionPdas[i];
       try {
-        await program.methods
+        await trackBalanceChange(`Claim Reward User ${i + 1} & Close PDA/Vault`, false, () => program.methods
           .claimReward()
           .accountsPartial({
             user: user.publicKey,
+            sponsor: admin.publicKey,
             pool: poolPda,
             poolVault: vaultPda,
             bet: userBetPda,
             userTokenAccount: userAta,
             tokenProgram: TOKEN_PROGRAM_ID,
           })
-          .signers([user])
-          .rpc();
+          .signers([user, admin])
+          .rpc());
 
         // Get Balance After
         const balAfter = await provider.connection.getTokenAccountBalance(
@@ -1128,50 +1219,115 @@ describe("Production Flow", () => {
         );
         const endAmount = balAfter.value.uiAmount || 0;
         const profit = endAmount - startAmount;
+        totalPayouts += profit;
+
+        const netProfit = profit - userTotalStakes[i];
 
         if (profit > 0.000001) {
-          console.log(`        🎉 WINNER! Reward: +${profit.toFixed(4)} USDC`);
-          console.log(`           (Balance: ${startAmount} -> ${endAmount})`);
+          console.log(`        🎉 WINNER! Reward (Payout): +${profit.toFixed(4)} USDC`);
+          console.log(`           Staked/Bet:              ${userTotalStakes[i].toFixed(4)} USDC`);
+          if (netProfit >= 0) {
+            console.log(`           📈 Net Profit:           +${netProfit.toFixed(4)} USDC (Real Profit)`);
+          } else {
+            console.log(`           📉 Net Profit/Loss:      ${netProfit.toFixed(4)} USDC (Real Loss)`);
+          }
+          console.log(`           (Wallet Balance:         ${startAmount} -> ${endAmount})`);
         } else {
           console.log(`        😐 Claimed but received 0 USDC (Break even?)`);
+          console.log(`           Staked/Bet:              ${userTotalStakes[i].toFixed(4)} USDC`);
+          console.log(`           📉 Net Profit/Loss:      ${netProfit.toFixed(4)} USDC (Real Loss)`);
         }
-      } catch (e) {
-        // If claim fails, it usually means they didn't win or already claimed
-        // We assume they are a "Loser" for this test context if it fails
+      } catch (e: any) {
         console.log(`        📉 DID NOT WIN (or claim failed).`);
+        const netProfit = 0 - userTotalStakes[i];
+        console.log(`           Staked/Bet:              ${userTotalStakes[i].toFixed(4)} USDC`);
+        console.log(`           📉 Net Profit/Loss:      ${netProfit.toFixed(4)} USDC (Real Loss)`);
         console.log(
           `           (Balance remained: ${startAmount.toFixed(4)} USDC)`,
         );
-        // Optional: Log specific error if needed
-        // console.log(`           Reason: ${e.message}`);
+        console.log(`           Reason: ${e.message}`);
+        if (e.logs) {
+          console.log(`           Logs:\n${e.logs.join("\n")}`);
+        }
       }
       console.log("      ---------------------------------------------------");
     }
+
+    // --- 4. RECONCILIATION CHECK ---
+    console.log("\n      🧮 MATHEMATICAL RECONCILIATION CHECK:");
+    
+    // Fetch ending treasury/admin USDC balance
+    const adminEndUsdc = (await provider.connection.getTokenAccountBalance(adminUsdcAta)).value.uiAmount || 0;
+    const treasuryFeeCollected = adminEndUsdc - adminStartUsdc;
+    const totalStakes = userTotalStakes.reduce((a, b) => a + b, 0);
+    const sumCalculated = totalPayouts + treasuryFeeCollected;
+    const difference = Math.abs(totalStakes - sumCalculated);
+
+    console.log(`         Total Stakes Deposited:  ${totalStakes.toFixed(4)} USDC`);
+    console.log(`         Total Payouts Claimed:   ${totalPayouts.toFixed(4)} USDC`);
+    console.log(`         Treasury Fees Collected: ${treasuryFeeCollected.toFixed(4)} USDC`);
+    console.log(`         ------------------------------------------`);
+    console.log(`         Payouts + Fees Sum:      ${sumCalculated.toFixed(4)} USDC`);
+    
+    if (difference < 0.0001) {
+      console.log(`         ✅ MATHEMATICAL RECONCILIATION SUCCESSFUL!`);
+      console.log(`            Total Stakes (${totalStakes.toFixed(4)} USDC) matches (Payouts + Fees) exactly.`);
+    } else {
+      console.log(`         ❌ RECONCILIATION MISMATCH!`);
+      console.log(`            Difference: ${difference.toFixed(4)} USDC`);
+    }
+    console.log("==================================================\n");
   });
 
   it("7. Public Verify", async () => {
-    const user1BetData = await program.account.bet.fetch(betPdas[0]);
-    const user2BetData = await program.account.bet.fetch(betPdas[1]);
+    // Note: Since users claimed their rewards in Step 6, the bet accounts are closed on L1
+    // and cannot be fetched. We already verified predictions and weights on L1 in Step 5 before claiming.
+    console.log("    ✅ Transparency Confirmed (Verified in Step 5 before Claim).");
 
-    console.log(
-      `    📖 L1 User1 Prediction: ${user1BetData.prediction.toString()}`,
-    );
-    console.log(
-      `    📖 L1 User2 Prediction: ${user2BetData.prediction.toString()}`,
-    );
+    const globalEndBalance = await provider.connection.getBalance(admin.publicKey);
+    const totalSpent = globalStartBalance - globalEndBalance;
+    const adminEndUsdc = (await provider.connection.getTokenAccountBalance(adminUsdcAta)).value.uiAmount || 0;
+    const usdcProfit = adminEndUsdc - adminStartUsdc;
 
-    if (!user1BetData.prediction.eq(updatedPredictions[0])) {
-      throw new Error(
-        `❌ Data Mismatch (User1): Expected ${updatedPredictions[0]}, got ${user1BetData.prediction}`,
-      );
-    }
+    const opGas = totalGasFees - setupGasFees;
+    const opRentSpent = totalRentSpent - setupRentSpent;
+    const opRentReclaimed = totalRentReclaimed - setupRentReclaimed;
 
-    if (!user2BetData.prediction.eq(predictions[1])) {
-      throw new Error(
-        `❌ Data Mismatch (User2): Expected ${predictions[1]}, got ${user2BetData.prediction}`,
-      );
-    }
+    const setupNetSOL = setupGasFees + setupRentSpent - setupRentReclaimed;
+    const opNetSOL = totalSpent - setupNetSOL;
 
-    console.log("    ✅ Transparency Confirmed.");
+    console.log("\n==================================================");
+    console.log(`🛠️  ONE-TIME SETUP COSTS (Devnet/Mainnet Setup):`);
+    console.log(`   (Creating Mint, initializing ATAs, funding users, etc.)`);
+    console.log(`   Gas Fees:       ${(setupGasFees / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   Rent Spent:     ${(setupRentSpent / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   Rent Reclaimed: ${(setupRentReclaimed / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   Net Setup Cost: ${(setupNetSOL / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   💡 Note: These costs are only paid ONCE during initial deployment`);
+    console.log(`      and user onboarding. They are NOT per-pool operational costs.`);
+    console.log("--------------------------------------------------");
+    console.log(`🔄 RECURRING OPERATIONAL COSTS (Per Pool Lifecycle):`);
+    console.log(`   (Creating Pool/Vault, Init/Delegate Bets, delegation reclaims)`);
+    console.log(`   Gas Fees:       ${(opGas / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   Rent Deposited: ${(opRentSpent / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   Rent Reclaimed: ${(opRentReclaimed / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   ----------------------------------------------`);
+    console.log(`   Net Operational Cost (Actual Change): ${(opNetSOL / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   💡 Note: Virtually 100% of the operational rent deposited is`);
+    console.log(`      reclaimed and returned to the sponsor when the pool closes.`);
+    console.log(`      The only true operational cost per pool is L1 gas fees.`);
+    console.log("--------------------------------------------------");
+    console.log(`📈 SPONSOR (ADMIN) FINANCIAL SUMMARY:`);
+    console.log(`   Admin Start SOL:   ${(globalStartBalance / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   Admin End SOL:     ${(globalEndBalance / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+    console.log(`   ----------------------------------------------`);
+    console.log(`   Total SOL Spent:   ${(totalSpent / LAMPORTS_PER_SOL).toFixed(6)} SOL (Grand Total)`);
+    console.log(`   Minus Setup Costs: -${(setupNetSOL / LAMPORTS_PER_SOL).toFixed(6)} SOL (One-Time Setup)`);
+    console.log(`   Net Pool Cost:     ${(opNetSOL / LAMPORTS_PER_SOL).toFixed(6)} SOL (Real Operational Cost)`);
+    console.log(`   ----------------------------------------------`);
+    console.log(`   Admin Start USDC:  ${adminStartUsdc.toFixed(2)} USDC`);
+    console.log(`   Admin End USDC:    ${adminEndUsdc.toFixed(2)} USDC`);
+    console.log(`   Net USDC Profit:   +${usdcProfit.toFixed(2)} USDC (3% Treasury Fees)`);
+    console.log("==================================================\n");
   });
 });

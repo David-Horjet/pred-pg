@@ -3,6 +3,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 use crate::state::{Protocol, Pool, Bet, BetStatus};
 use crate::constants::{SEED_BET, SEED_POOL, SEED_POOL_VAULT, SEED_PROTOCOL};
 use crate::errors::CustomError;
+use ephemeral_rollups_sdk::ephemeral_accounts::rent;
 
 #[derive(Accounts)]
 #[instruction(amount: u64, request_id: String)]
@@ -73,7 +74,7 @@ pub fn init_bet(
 
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.user_token_account.to_account_info(),
                 to: ctx.accounts.pool_vault.to_account_info(),
@@ -99,6 +100,17 @@ pub fn init_bet(
     bet.status = BetStatus::Active;
     bet.prediction = 0; 
     bet.bump = ctx.bumps.bet;
+
+    anchor_lang::system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.key(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.sponsor.to_account_info(),
+                to: ctx.accounts.bet.to_account_info(),
+            },
+        ),
+        rent(150),
+    )?;
 
     msg!("Bet Initialized on L1. Funds Secured.");
 

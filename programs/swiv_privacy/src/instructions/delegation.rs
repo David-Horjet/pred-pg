@@ -2,11 +2,6 @@ use anchor_lang::prelude::*;
 use crate::state::{Bet, Protocol, Pool}; 
 use crate::constants::{SEED_BET, SEED_POOL, SEED_PROTOCOL}; 
 use crate::errors::CustomError;
-use crate::events::{
-    PoolDelegated, PoolUndelegated, 
-    BetDelegated, BetUndelegated
-}; 
-use ephemeral_rollups_sdk::access_control::instructions::DelegatePermissionCpiBuilder;
 
 use ephemeral_rollups_sdk::anchor::{delegate, commit};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
@@ -33,13 +28,13 @@ pub struct DelegatePool<'info> {
         seeds = [SEED_POOL, admin.key().as_ref(), &pool_id.to_le_bytes()],
         bump
     )]
-    pub pool: AccountInfo<'info>,
+    pub pool: UncheckedAccount<'info>,
 
     /// CHECK: The MagicBlock Ephemeral Rollup Validator (TEE)
     pub validator: UncheckedAccount<'info>,
 }
 
-pub fn delegate_pool(ctx: Context<DelegatePool>, pool_id: u64) -> Result<()> {
+pub fn delegate_pool<'info>(ctx: Context<'info, DelegatePool<'info>>, pool_id: u64) -> Result<()> {
     let admin_key = ctx.accounts.admin.key();
     let admin_bytes = admin_key.as_ref();
     let pool_id_bytes = pool_id.to_le_bytes();
@@ -60,98 +55,10 @@ pub fn delegate_pool(ctx: Context<DelegatePool>, pool_id: u64) -> Result<()> {
         config,             
     )?;
 
-    emit!(PoolDelegated {
-        pool_address: ctx.accounts.pool.key(),
-    });
-
     msg!("Pool account delegated successfully.");
     Ok(())
 }
 
-#[derive(Accounts)]
-pub struct DelegateBetPermission<'info> {
-    /// The user who owns the bet — must sign to authorize delegation.
-    #[account(mut)]
-    pub user: Signer<'info>,
-
-    /// Pays for any accounts the delegation program creates (buffer, record, metadata).
-    /// Separated from user so users need zero SOL under the gas-sponsorship model.
-    #[account(mut)]
-    pub payer: Signer<'info>,
-
-    /// CHECK: Manually validated against the bet's pool_identifier.
-    pub pool: AccountInfo<'info>,
-
-    /// CHECK: The user's bet account (The Permissioned Account)
-    #[account(mut)]
-    pub user_bet: AccountInfo<'info>,
-
-    /// CHECK: The permission account associated with the user_bet.
-    #[account(mut)]
-    pub permission: UncheckedAccount<'info>,
-
-    /// CHECK: The MagicBlock Permission Program
-    pub permission_program: UncheckedAccount<'info>,
-
-    /// CHECK: The MagicBlock Delegation Program
-    pub delegation_program: UncheckedAccount<'info>,
-
-    /// CHECK: Delegation buffer (Derived by client or SDK)
-    #[account(mut)]
-    pub delegation_buffer: UncheckedAccount<'info>,
-
-    /// CHECK: Delegation record (Derived by client or SDK)
-    #[account(mut)]
-    pub delegation_record: UncheckedAccount<'info>,
-
-    /// CHECK: Delegation metadata (Derived by client or SDK)
-    #[account(mut)]
-    pub delegation_metadata: UncheckedAccount<'info>,
-
-    /// CHECK: The MagicBlock Ephemeral Rollup Validator (TEE)
-    pub validator: UncheckedAccount<'info>,
-
-    pub system_program: Program<'info, System>,
-}
-
-pub fn delegate_bet_permission(ctx: Context<DelegateBetPermission>, _request_id: String) -> Result<()> {
-    let (pool_pubkey, owner, bump) = {
-        let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
-        let mut data_slice: &[u8] = &user_bet_data;
-        let bet = Bet::try_deserialize(&mut data_slice)?;
-        (bet.pool_pubkey, bet.user_pubkey, bet.bump)
-    };
-
-    require!(owner == ctx.accounts.user.key(), CustomError::Unauthorized);
-    require!(pool_pubkey == ctx.accounts.pool.key(), CustomError::PoolMismatch);
-
-    let pool_key = ctx.accounts.pool.key();
-    let user_key = ctx.accounts.user.key();
-
-    let seeds_for_signing = &[
-        SEED_BET,
-        pool_key.as_ref(), 
-        user_key.as_ref(),
-        &[bump],
-    ];
-    let signer_seeds = &[&seeds_for_signing[..]];
-
-    DelegatePermissionCpiBuilder::new(&ctx.accounts.permission_program)
-        .payer(&ctx.accounts.payer)
-        .authority(&ctx.accounts.user, false)
-        .permissioned_account(&ctx.accounts.user_bet, true) // user_bet signs
-        .permission(&ctx.accounts.permission)
-        .system_program(&ctx.accounts.system_program)
-        .owner_program(&ctx.accounts.permission_program)
-        .delegation_buffer(&ctx.accounts.delegation_buffer)
-        .delegation_record(&ctx.accounts.delegation_record)
-        .delegation_metadata(&ctx.accounts.delegation_metadata)
-        .delegation_program(&ctx.accounts.delegation_program)
-        .validator(Some(&ctx.accounts.validator))
-        .invoke_signed(signer_seeds)?;
-    msg!("Permission account delegated successfully.");
-    Ok(())
-}
 
 #[delegate]
 #[derive(Accounts)]
@@ -166,17 +73,17 @@ pub struct DelegateBet<'info> {
     pub payer: Signer<'info>,
 
     /// CHECK: Manually validated against the bet's pool_identifier.
-    pub pool: AccountInfo<'info>,
+    pub pool: UncheckedAccount<'info>,
 
     /// CHECK: The user's bet account.
     #[account(mut, del)]
-    pub user_bet: AccountInfo<'info>,
+    pub user_bet: UncheckedAccount<'info>,
 
     /// CHECK: The MagicBlock Ephemeral Rollup Validator (TEE)
     pub validator: UncheckedAccount<'info>,
 }
 
-pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()> {
+pub fn delegate_bet<'info>(ctx: Context<'info, DelegateBet<'info>>) -> Result<()> {
     let (pool_pubkey, owner) = {
         let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
         let mut data_slice: &[u8] = &user_bet_data;
@@ -207,12 +114,6 @@ pub fn delegate_bet(ctx: Context<DelegateBet>, request_id: String) -> Result<()>
         config,
     )?;
 
-    emit!(BetDelegated {
-        bet_address: ctx.accounts.user_bet.key(),
-        user: ctx.accounts.user.key(),
-        request_id,
-    });
-
     msg!("Bet delegated successfully.");
     Ok(())
 }
@@ -232,20 +133,17 @@ pub struct UndelegatePool<'info> {
     
     /// CHECK: The Pool account
     #[account(mut)]
-    pub pool: AccountInfo<'info>,
+    pub pool: UncheckedAccount<'info>,
 }
 
-pub fn undelegate_pool(ctx: Context<UndelegatePool>) -> Result<()> {
+pub fn undelegate_pool<'info>(ctx: Context<'info, UndelegatePool<'info>>) -> Result<()> {
     commit_and_undelegate_accounts(
         &ctx.accounts.admin,
         vec![&ctx.accounts.pool],
         &ctx.accounts.magic_context,
         &ctx.accounts.magic_program,
+        None,
     )?;
-
-    emit!(PoolUndelegated {
-        pool_address: ctx.accounts.pool.key(),
-    });
 
     Ok(())
 }
@@ -264,7 +162,7 @@ pub struct BatchUndelegateBets<'info> {
     pub pool: Account<'info, Pool>,
 }
 
-pub fn batch_undelegate_bets<'info>(ctx: Context<'_, '_, '_, 'info, BatchUndelegateBets<'info>>) -> Result<()> {
+pub fn batch_undelegate_bets<'info>(ctx: Context<'info, BatchUndelegateBets<'info>>) -> Result<()> {
     let pool = &ctx.accounts.pool;
     let clock = Clock::get()?;
 
@@ -284,16 +182,31 @@ pub fn batch_undelegate_bets<'info>(ctx: Context<'_, '_, '_, 'info, BatchUndeleg
         accounts_to_undelegate,
         &ctx.accounts.magic_context,
         &ctx.accounts.magic_program,
+        None,
     )?;
-
-    for acc in ctx.remaining_accounts.iter() {
-        emit!(BetUndelegated {
-            bet_address: acc.key(),
-            user: Pubkey::default(),
-            is_batch: true,
-        });
-    }
 
     msg!("Batch Undelegate executed for {} bets.", ctx.remaining_accounts.len());
     Ok(())
 }
+
+#[commit]
+#[derive(Accounts)]
+pub struct UndelegateBet<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    /// CHECK: The user's bet account.
+    #[account(mut)]
+    pub user_bet: UncheckedAccount<'info>,
+}
+
+pub fn undelegate_bet<'info>(ctx: Context<'info, UndelegateBet<'info>>) -> Result<()> {
+    commit_and_undelegate_accounts(
+        &ctx.accounts.payer,
+        vec![&ctx.accounts.user_bet],
+        &ctx.accounts.magic_context,
+        &ctx.accounts.magic_program,
+        None,
+    )?;
+    Ok(())
+}

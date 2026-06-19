@@ -5,15 +5,23 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
-[programs.devnet]
-swiv_privacy = "4RDfF1cC6WBGyQ1zhUNDkbPwMfSKjuCPXF3ygt6KmVwy"
-
-[registry]
-url = "https://api.apr.dev"
+[programs.localnet]
+swiv_privacy = "8YgBi7xiu4CvkvAjqXtDhtKZuAVSGvbMLMRo1zyCaVM4"
 
 [provider]
-cluster = "devnet"
-wallet = "./keypair.json"
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[[test.genesis]]
+address = "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+program = "delegation_program.so"
+
+[[test.genesis]]
+address = "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+program = "permission_program.so"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
+
+[hooks]
+

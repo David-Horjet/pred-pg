@@ -2,18 +2,18 @@ use crate::constants::SEED_BET;
 use crate::errors::CustomError;
 use anchor_lang::prelude::*;
 
-use ephemeral_rollups_sdk::access_control::instructions::CreatePermissionCpiBuilder;
-use ephemeral_rollups_sdk::access_control::structs::{Member, MembersArgs, AUTHORITY_FLAG};
+use ephemeral_rollups_sdk::access_control::instructions::{CreateEphemeralPermissionCpi, CloseEphemeralPermissionCpi};
+use ephemeral_rollups_sdk::access_control::structs::{Member, EphemeralMembersArgs, AUTHORITY_FLAG};
 
 #[derive(Accounts)]
 pub struct CreateBetPermission<'info> {
-    #[account(mut)]
     pub payer: Signer<'info>,
 
     /// CHECK: The user who is given authority
     pub user: UncheckedAccount<'info>,
 
     /// CHECK: We manually verify seeds below to invoke with canonical bump
+    #[account(mut)]
     pub user_bet: UncheckedAccount<'info>,
 
     /// CHECK: Passed to permission program. Must be UncheckedAccount.
@@ -26,7 +26,12 @@ pub struct CreateBetPermission<'info> {
     /// CHECK: The MagicBlock Permission Program ID
     pub permission_program: UncheckedAccount<'info>,
 
-    pub system_program: Program<'info, System>,
+    /// CHECK: The MagicBlock Ephemeral Vault ID
+    #[account(mut)]
+    pub vault: UncheckedAccount<'info>,
+
+    /// CHECK: The MagicBlock Program ID
+    pub magic_program: UncheckedAccount<'info>,
 }
 
 pub fn create_bet_permission(ctx: Context<CreateBetPermission>, _request_id: String) -> Result<()> {
@@ -61,17 +66,80 @@ pub fn create_bet_permission(ctx: Context<CreateBetPermission>, _request_id: Str
         pubkey: ctx.accounts.user.key(),
         flags: AUTHORITY_FLAG,
     };
-    let args = MembersArgs {
-        members: Some(vec![member]),
+    let args = EphemeralMembersArgs {
+        is_private: true,
+        members: vec![member],
     };
 
-    CreatePermissionCpiBuilder::new(&ctx.accounts.permission_program)
-        .payer(&ctx.accounts.payer)
-        .system_program(&ctx.accounts.system_program)
-        .permission(&ctx.accounts.permission)
-        .permissioned_account(&ctx.accounts.user_bet)
-        .args(args)
-        .invoke_signed(signer_seeds)?;
+    let cpi = CreateEphemeralPermissionCpi {
+        permissioned_account: ctx.accounts.user_bet.to_account_info(),
+        permission: ctx.accounts.permission.to_account_info(),
+        payer: ctx.accounts.user_bet.to_account_info(),
+        vault: ctx.accounts.vault.to_account_info(),
+        magic_program: ctx.accounts.magic_program.to_account_info(),
+        permission_program: ctx.accounts.permission_program.to_account_info(),
+        args,
+    };
+
+    cpi.invoke_signed(signer_seeds)?;
+
+    Ok(())
+}
+
+use crate::state::Bet;
+
+#[derive(Accounts)]
+pub struct CloseBetPermission<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    /// CHECK: The user's bet account (the permissioned account) which acts as the authority
+    #[account(mut)]
+    pub user_bet: UncheckedAccount<'info>,
+
+    /// CHECK: The permission account to close
+    #[account(mut)]
+    pub permission: UncheckedAccount<'info>,
+
+    /// CHECK: The MagicBlock Ephemeral Vault ID
+    #[account(mut)]
+    pub vault: UncheckedAccount<'info>,
+
+    /// CHECK: The MagicBlock Program ID
+    pub magic_program: UncheckedAccount<'info>,
+
+    /// CHECK: The MagicBlock Permission Program ID
+    pub permission_program: UncheckedAccount<'info>,
+}
+
+pub fn close_bet_permission(ctx: Context<CloseBetPermission>) -> Result<()> {
+    let (pool_pubkey, user_pubkey, bump) = {
+        let user_bet_data = ctx.accounts.user_bet.try_borrow_data()?;
+        let mut data_slice: &[u8] = &user_bet_data;
+        let bet = Bet::try_deserialize(&mut data_slice)?;
+        (bet.pool_pubkey, bet.user_pubkey, bet.bump)
+    };
+
+    let seeds_for_signing = &[
+        SEED_BET,
+        pool_pubkey.as_ref(),
+        user_pubkey.as_ref(),
+        &[bump],
+    ];
+    let signer_seeds = &[&seeds_for_signing[..]];
+
+    let cpi = CloseEphemeralPermissionCpi {
+        permissioned_account: ctx.accounts.user_bet.to_account_info(),
+        permission: ctx.accounts.permission.to_account_info(),
+        payer: ctx.accounts.user_bet.to_account_info(),
+        authority: ctx.accounts.user_bet.to_account_info(),
+        vault: ctx.accounts.vault.to_account_info(),
+        magic_program: ctx.accounts.magic_program.to_account_info(),
+        permission_program: ctx.accounts.permission_program.to_account_info(),
+        authority_is_signer: false,
+    };
+
+    cpi.invoke_signed(signer_seeds)?;
 
     Ok(())
 }

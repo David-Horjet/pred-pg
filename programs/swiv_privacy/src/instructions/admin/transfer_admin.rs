@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use crate::state::Protocol;
 use crate::constants::SEED_PROTOCOL;
 use crate::errors::CustomError;
-use crate::events::AdminTransferred;
 
 #[derive(Accounts)]
 pub struct TransferAdmin<'info> {
@@ -25,11 +24,6 @@ pub fn transfer_admin(ctx: Context<TransferAdmin>, new_admin: Pubkey) -> Result<
     let old_admin = protocol.admin;
 
     protocol.admin = new_admin;
-    
-    emit!(AdminTransferred {
-        old_admin,
-        new_admin,
-    });
 
     msg!("Admin transferred from {} to {}", old_admin, new_admin);
 

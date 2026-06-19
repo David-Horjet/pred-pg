@@ -14,6 +14,13 @@ pub struct EmergencyRefund<'info> {
 
     #[account(
         mut,
+        constraint = sponsor.key() == pool.created_by @ CustomError::Unauthorized
+    )]
+    pub sponsor: Signer<'info>,
+
+    #[account(
+        mut,
+        close = sponsor,
         constraint = bet.user_pubkey == user.key() @ CustomError::Unauthorized,
         constraint = bet.pool_pubkey == pool.key() @ CustomError::PoolMismatch,
         constraint = bet.status != BetStatus::Claimed @ CustomError::AlreadyClaimed
@@ -65,7 +72,11 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
         );
     }
 
-    let refund_amount = bet.stake;
+    let refund_amount = if pool.total_participants == 1 {
+        ctx.accounts.pool_vault.amount
+    } else {
+        bet.stake
+    };
 
     if refund_amount > 0 {
         let created_by_bytes = pool.created_by.as_ref();
@@ -74,9 +85,9 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
         let seeds = &[SEED_POOL, created_by_bytes, &pool_id_bytes, &[bump]];
         let signer = &[&seeds[..]];
 
-        token::transfer(
+       token::transfer(
             CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 Transfer {
                     from: ctx.accounts.pool_vault.to_account_info(),
                     to: ctx.accounts.user_token_account.to_account_info(),
@@ -110,6 +121,39 @@ pub fn emergency_refund(ctx: Context<EmergencyRefund>) -> Result<()> {
     });
 
     msg!("Emergency Refund executed for user: {}", ctx.accounts.user.key());
+
+    if pool.total_participants == 0 {
+        // 1. Close the pool vault token account
+        let created_by_bytes = pool.created_by.as_ref();
+        let pool_id_bytes = pool.pool_id.to_le_bytes();
+        let bump = pool.bump;
+        let seeds = &[SEED_POOL, created_by_bytes, &pool_id_bytes, &[bump]];
+        let signer = &[&seeds[..]];
+
+        token::close_account(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.key(),
+                token::CloseAccount {
+                    account: ctx.accounts.pool_vault.to_account_info(),
+                    destination: ctx.accounts.sponsor.to_account_info(),
+                    authority: pool.to_account_info(),
+                },
+                signer,
+            ),
+        )?;
+
+        // 2. Close the pool account itself by draining its lamports
+        let pool_info = pool.to_account_info();
+        let sponsor_info = ctx.accounts.sponsor.to_account_info();
+        
+        let sponsor_lamports = sponsor_info.lamports();
+        let pool_lamports = pool_info.lamports();
+        
+        **sponsor_info.lamports.borrow_mut() = sponsor_lamports.checked_add(pool_lamports).unwrap();
+        **pool_info.lamports.borrow_mut() = 0;
+
+        msg!("All refunds completed. Pool and vault accounts closed, rent reclaimed.");
+    }
 
     Ok(())
 }

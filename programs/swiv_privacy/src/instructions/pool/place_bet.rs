@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use crate::state::{Pool, PoolStatus, Bet, BetStatus, Protocol};
 use crate::constants::{SEED_BET, SEED_POOL, SEED_PROTOCOL};
 use crate::errors::CustomError;
-use crate::events::BetPlaced;
 
 #[derive(Accounts)]
 #[instruction(prediction: u64, request_id: String)]
@@ -50,14 +49,6 @@ pub fn place_bet(
 
     bet.prediction = prediction;
     bet.update_count = bet.update_count.checked_add(1).unwrap();
-
-    emit!(BetPlaced {
-        bet_address: bet.key(),
-        user: ctx.accounts.user.key(),
-        pool_identifier: pool.title.clone(),
-        amount: bet.stake,
-        end_timestamp: pool.end_time,
-    });
 
     Ok(())
 }

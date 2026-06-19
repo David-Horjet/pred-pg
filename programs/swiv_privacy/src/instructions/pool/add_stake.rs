@@ -49,7 +49,7 @@ pub fn add_stake(ctx: Context<AddStake>, amount: u64) -> Result<()> {
 
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.user_token_account.to_account_info(),
                 to: ctx.accounts.pool_vault.to_account_info(),

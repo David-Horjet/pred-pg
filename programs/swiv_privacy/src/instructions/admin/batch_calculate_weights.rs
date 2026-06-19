@@ -1,6 +1,5 @@
 use crate::constants::SEED_POOL;
 use crate::errors::CustomError;
-use crate::events::OutcomeCalculated;
 use crate::state::{BetStatus, Pool, PoolStatus, Bet};
 use crate::utils::math::{
     calculate_accuracy_score, calculate_conviction_bonus, calculate_time_bonus, calculate_weight,
@@ -25,7 +24,7 @@ pub struct BatchCalculateWeights<'info> {
 }
 
 pub fn batch_calculate_weights<'info>(
-    ctx: Context<'_, '_, '_, 'info, BatchCalculateWeights<'info>>,
+    ctx: Context<'info, BatchCalculateWeights<'info>>,
 ) -> Result<()> {
     let pool = &mut ctx.accounts.pool;
     let accounts_iter = &mut ctx.remaining_accounts.iter();
@@ -78,11 +77,6 @@ pub fn batch_calculate_weights<'info>(
         bet.try_serialize(&mut new_data)?;
         user_bet_data[..new_data.len()].copy_from_slice(&new_data);
 
-        emit!(OutcomeCalculated {
-            bet_address: user_bet_acc_info.key(),
-            user: bet.user_pubkey,
-            weight: weight,
-        });
     }
 
     Ok(())

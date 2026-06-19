@@ -2,7 +2,6 @@ use anchor_lang::prelude::*;
 use crate::state::{Pool, PoolStatus, Protocol};
 use crate::constants::{SEED_PROTOCOL, SEED_POOL};
 use crate::errors::CustomError;
-use crate::events::PoolResolved;
 
 #[derive(Accounts)]
 pub struct ResolvePool<'info> {
@@ -44,12 +43,6 @@ pub fn resolve_pool(ctx: Context<ResolvePool>, final_outcome: u64) -> Result<()>
     pool.resolution_result = final_outcome;
     pool.resolution_ts = clock.unix_timestamp;
     pool.status = PoolStatus::Resolving;
-
-    emit!(PoolResolved {
-        pool_name: pool.title.clone(),
-        final_outcome,
-        resolution_ts: pool.resolution_ts,
-    });
 
     msg!("Pool Resolving. Outcome: {}", final_outcome);
 
