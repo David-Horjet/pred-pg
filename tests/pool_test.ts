@@ -195,6 +195,26 @@ describe("Production Flow", () => {
     throw new Error("Unreachable");
   }
 
+  async function fetchWithRetry<T>(
+    accountClient: any,
+    address: PublicKey,
+    retries = 3,
+    delayMs = 2000,
+  ): Promise<T> {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await accountClient.fetch(address);
+      } catch (e: any) {
+        if (i === retries - 1) throw e;
+        console.log(
+          `      ⚠️  Fetch failed for ${address.toBase58().slice(0, 8)}... (Attempt ${i + 1}/${retries}). Retrying in ${delayMs / 1000}s...`,
+        );
+        await sleep(delayMs);
+      }
+    }
+    throw new Error("Unreachable");
+  }
+
   it("1. Setup Environment", async () => {
     globalStartBalance = await provider.connection.getBalance(admin.publicKey);
 
@@ -267,7 +287,7 @@ describe("Production Flow", () => {
       })
       .rpc(), true);
 
-    const protocol = await program.account.protocol.fetch(protocolPda);
+    const protocol = await fetchWithRetry<any>(program.account.protocol, protocolPda);
     poolId = protocol.totalPools.toNumber();
   });
 
@@ -323,7 +343,7 @@ describe("Production Flow", () => {
 
   it("2.b. Verify Market Cutoff Enforcement (L1)", async () => {
     // Derive pool_id from current protocol.totalPools (same logic as contract)
-    const tempProtocol = await program.account.protocol.fetch(protocolPda);
+    const tempProtocol = await fetchWithRetry<any>(program.account.protocol, protocolPda);
     const tempPoolIdBn = tempProtocol.totalPools;
     const [tempPoolPda] = PublicKey.findProgramAddressSync(
       [SEED_POOL, admin.publicKey.toBuffer(), tempPoolIdBn.toBuffer("le", 8)],
@@ -373,7 +393,7 @@ describe("Production Flow", () => {
       .rpc(), true);
     console.log("      ✅ Successful entry before cutoff recorded");
 
-    const pool = await program.account.pool.fetch(tempPoolPda);
+    const pool = await fetchWithRetry<any>(program.account.pool, tempPoolPda);
     console.log(`      ✅ Cutoff Time: ${new Date(pool.cutoffTime.toNumber() * 1000).toISOString()}`);
     
     // Wait for cutoff
@@ -435,7 +455,7 @@ describe("Production Flow", () => {
       })
       .rpc(), true);
 
-    const poolAfterFinalize = await program.account.pool.fetch(tempPoolPda);
+    const poolAfterFinalize = await fetchWithRetry<any>(program.account.pool, tempPoolPda);
     console.log(`      📊 Refund Pool Logic -> totalWeight: ${poolAfterFinalize.totalWeight.toString()}, totalStaked: ${poolAfterFinalize.totalStaked.toString()}`);
     
     const balanceBefore = (await provider.connection.getTokenAccountBalance(userAtas[0])).value.uiAmount;
@@ -692,11 +712,11 @@ describe("Production Flow", () => {
     const additionalStake = new anchor.BN(50 * 1e6); // Add 50 USDC
 
     // Get pool state before (L1)
-    let poolBefore = await program.account.pool.fetch(poolPda);
+    let poolBefore = await fetchWithRetry<any>(program.account.pool, poolPda);
     const volumeBefore = poolBefore.totalStaked;
 
     // Get bet state before (L1 — bet is still delegated but L1 reflects original stake)
-    let betBefore = await program.account.bet.fetch(betPda);
+    let betBefore = await fetchWithRetry<any>(program.account.bet, betPda);
     const stakeBefore = betBefore.stake;
 
     console.log(`      📊 Before Increase:`);
@@ -791,10 +811,10 @@ describe("Production Flow", () => {
       program.idl,
       teeProvider,
     );
-    let betAfter = await teeProgram.account.bet.fetch(betPda);
+    let betAfter = await fetchWithRetry<any>(teeProgram.account.bet, betPda);
 
     // Fetch pool state from L1 (not delegated — addStake updated it directly)
-    let poolAfter = await program.account.pool.fetch(poolPda);
+    let poolAfter = await fetchWithRetry<any>(program.account.pool, poolPda);
 
     const stakeAfter = betAfter.stake;
     const volumeAfter = poolAfter.totalStaked;
@@ -1006,20 +1026,7 @@ describe("Production Flow", () => {
 
     await sleep(2000);
 
-    // --- DEBUG BETS ON TEE ---
-    const debugTeeProvider = new anchor.AnchorProvider(
-      erConn,
-      new anchor.Wallet(admin),
-      { commitment: "confirmed" },
-    );
-    const debugTeeProgram = new anchor.Program<SwivPrivacy>(
-      program.idl as any,
-      debugTeeProvider,
-    );
-    for (let i = 0; i < betPdas.length; i++) {
-      const betOnTee = await debugTeeProgram.account.bet.fetch(betPdas[i]);
-      console.log(`      🧪 TEE Bet ${i + 1} - Prediction: ${betOnTee.prediction.toString()}, Weight: ${betOnTee.calculatedWeight.toString()}, Status: ${JSON.stringify(betOnTee.status)}`);
-    }
+
 
     // --- CLOSE PERMISSIONS (TEE) ---
     console.log("    🔒 Closing Ephemeral Permission accounts on TEE...");
@@ -1046,22 +1053,45 @@ describe("Production Flow", () => {
     await sleep(2000);
 
     // --- UNDELEGATE BETS (Flush to L1) ---
-    console.log(
-      "    📤 Flushing User Bet Data back to L1 (Undelegate individually)...",
-    );
+    if (!isLocalnet) {
+      console.log(
+        "    📤 Flushing User Bet Data back to L1 (Batch Undelegate on Devnet)...",
+      );
+      const batchAccounts = betPdas.map((k) => ({
+        pubkey: k,
+        isWritable: true,
+        isSigner: false,
+      }));
 
-    for (let i = 0; i < betPdas.length; i++) {
-      const betPda = betPdas[i];
       await withRetry(async () => {
         const undelegateBetTx = await erProgram.methods
-          .undelegateBet()
+          .batchUndelegateBets()
           .accountsPartial({
             payer: admin.publicKey,
-            userBet: betPda,
+            pool: poolPda,
           })
+          .remainingAccounts(batchAccounts)
           .rpc();
-        console.log(`    ✅ User Bet ${i + 1} Flushed to L1 (Sig: ${undelegateBetTx})`);
-      }, `Flush Bet User ${i + 1} (TEE -> L1)`);
+        console.log(`    ✅ Batch User Bets Flushed to L1 (Sig: ${undelegateBetTx})`);
+      }, `Flush Bets (Batch TEE -> L1)`);
+    } else {
+      console.log(
+        "    📤 Flushing User Bet Data back to L1 (Undelegate individually on Localnet)...",
+      );
+
+      for (let i = 0; i < betPdas.length; i++) {
+        const betPda = betPdas[i];
+        await withRetry(async () => {
+          const undelegateBetTx = await erProgram.methods
+            .undelegateBet()
+            .accountsPartial({
+              payer: admin.publicKey,
+              userBet: betPda,
+            })
+            .rpc();
+          console.log(`    ✅ User Bet ${i + 1} Flushed to L1 (Sig: ${undelegateBetTx})`);
+        }, `Flush Bet User ${i + 1} (TEE -> L1)`);
+      }
     }
 
     await sleep(2000);
@@ -1086,8 +1116,8 @@ describe("Production Flow", () => {
     console.log("    🏁 Settlement Process Complete.");
 
     // --- MATH VERIFICATION (Post-Settlement on L1) ---
-    const bet1 = await program.account.bet.fetch(betPdas[0]);
-    const bet2 = await program.account.bet.fetch(betPdas[1]);
+    const bet1 = await fetchWithRetry<any>(program.account.bet, betPdas[0]);
+    const bet2 = await fetchWithRetry<any>(program.account.bet, betPdas[1]);
     console.log(`      ⚖️  Math Check - User 1 Weight: ${bet1.calculatedWeight.toString()}`);
     console.log(`      ⚖️  Math Check - User 2 Weight: ${bet2.calculatedWeight.toString()}`);
     
@@ -1104,7 +1134,7 @@ describe("Production Flow", () => {
 
     // --- 1. WAIT FOR L1 SETTLEMENT (Wait for Step 5 to reflect) ---
     console.log("      ⏳ Waiting for L1 Pool to reflect TEE resolution...");
-    let poolAccount = await program.account.pool.fetch(poolPda);
+    let poolAccount = await fetchWithRetry<any>(program.account.pool, poolPda);
 
     const poolStatusKey = (s: any) => Object.keys(s)[0];
 
@@ -1139,7 +1169,7 @@ describe("Production Flow", () => {
     while (!isResolvingOrBeyond(poolAccount.status) && retries > 0) {
       await sleep(1500);
       try {
-        poolAccount = await program.account.pool.fetch(poolPda);
+        poolAccount = await fetchWithRetry<any>(program.account.pool, poolPda, 3, 1000);
       } catch (e) {}
       retries--;
     }
