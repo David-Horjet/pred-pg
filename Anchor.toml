@@ -10,7 +10,7 @@ swiv_privacy = "EG3bvFiDtENf5m5tT3JLq1cATQea97Ckf7KE1WXiRqy6"
 
 [provider]
 cluster = "devnet"
-wallet = "./keypairt.json"
+wallet = "./keypair.json"
 
 [scripts]
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
